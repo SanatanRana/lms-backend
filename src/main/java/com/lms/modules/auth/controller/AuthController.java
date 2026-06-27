@@ -16,6 +16,16 @@ public class AuthController {
     @Autowired
     private AuthService authService;
 
+    @Autowired
+    private com.lms.modules.user.repository.UserRepository userRepository;
+
+    @GetMapping("/debug-users")
+    public ResponseEntity<?> debugUsers() {
+        return ResponseEntity.ok(userRepository.findAll().stream()
+            .map(u -> u.getEmail() + " (role: " + u.getRole() + ", active: " + u.isActive() + ")")
+            .collect(java.util.stream.Collectors.toList()));
+    }
+
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<String>> register(@RequestBody RegisterRequest request) {
         String result = authService.registerUser(request);
