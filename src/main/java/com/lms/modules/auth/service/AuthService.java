@@ -54,6 +54,7 @@ public class AuthService {
         user.setPhone(request.getPhone());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.STUDENT);
+        user.setActive(true);
 
         userRepository.save(user);
 

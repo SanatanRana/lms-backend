@@ -89,6 +89,7 @@ class LmsApplicationTests {
     }
 
     @Test
+    @org.springframework.transaction.annotation.Transactional
     void testPrintDatabaseInfo() {
         System.out.println("=== LISTING ALL PAYMENTS IN DATABASE ===");
         paymentRepository.findAll().forEach(payment -> {
