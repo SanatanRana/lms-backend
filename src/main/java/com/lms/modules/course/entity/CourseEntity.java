@@ -51,10 +51,21 @@ public class CourseEntity {
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
     private UserEntity teacher;
 
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean active = true;
+
     @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orderIndex ASC")
     @JsonIgnoreProperties("course")
     private List<SectionEntity> sections = new ArrayList<>();
+
+    @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnoreProperties("course")
+    private List<CourseResourceEntity> resources = new ArrayList<>();
+
+    @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnoreProperties("course")
+    private List<EnrollmentEntity> enrollments = new ArrayList<>();
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

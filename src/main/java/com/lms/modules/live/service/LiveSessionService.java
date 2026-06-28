@@ -13,11 +13,15 @@ import com.lms.modules.live.repository.AttendanceRepository;
 import com.lms.modules.live.repository.LiveSessionRepository;
 import com.lms.modules.user.entity.UserEntity;
 import com.lms.modules.user.repository.UserRepository;
+import com.lms.common.enums.RecordingStatus;
+import com.lms.modules.course.service.AzureBlobStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -42,6 +46,15 @@ public class LiveSessionService {
     @Autowired
     private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    private RoomTokenService roomTokenService;
+
+    @Autowired
+    private RoomService roomService;
+
+    @Autowired
+    private AzureBlobStorageService azureBlobStorageService;
+
     @Transactional
     public LiveSessionEntity createSession(LiveSessionRequest request, String teacherEmail) {
         UserEntity teacher = userRepository.findByEmail(teacherEmail)
@@ -54,9 +67,12 @@ public class LiveSessionService {
         session.setCourse(course);
         session.setTeacher(teacher);
         session.setTitle(request.getTitle());
-        session.setMeetingLink(request.getMeetingLink());
+        session.setRoomToken(roomTokenService.generateToken());
         session.setStartTime(request.getStartTime());
         session.setEndTime(request.getEndTime());
+        session.setMaxParticipants(request.getMaxParticipants() != null ? request.getMaxParticipants() : 50);
+        session.setChatEnabled(request.getChatEnabled() != null ? request.getChatEnabled() : true);
+        session.setGuestAccessEnabled(request.getGuestAccessEnabled() != null ? request.getGuestAccessEnabled() : true);
         session.setStatus(SessionStatus.SCHEDULED);
 
         LiveSessionEntity saved = liveSessionRepository.save(session);
@@ -74,6 +90,9 @@ public class LiveSessionService {
         session.setStartTime(LocalDateTime.now());
         LiveSessionEntity saved = liveSessionRepository.save(session);
 
+        // Initialize active room in memory
+        roomService.createRoom(sessionId);
+
         eventPublisher.publishEvent(new DomainEvents.LiveSessionStartedEvent(
                 saved.getId(), saved.getCourse().getId(), saved.getTitle()
         ));
@@ -87,6 +106,9 @@ public class LiveSessionService {
         session.setStatus(SessionStatus.ENDED);
         session.setEndTime(LocalDateTime.now());
         LiveSessionEntity saved = liveSessionRepository.save(session);
+
+        // Cleanup the in-memory room
+        roomService.destroyRoom(sessionId);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionEndedEvent(
                 saved.getId(), saved.getCourse().getId()
@@ -103,6 +125,16 @@ public class LiveSessionService {
 
         if (session.getStatus() == SessionStatus.ENDED) {
             throw new RuntimeException("Session has already ended");
+        }
+
+        // Validate enrollment if guest access is disabled or if the user is not a teacher
+        // Teachers/Admins don't need enrollment checks.
+        boolean isTeacherOrAdmin = student.getRole().name().equals("TEACHER") || student.getRole().name().equals("ADMIN");
+        if (!isTeacherOrAdmin) {
+            boolean isEnrolled = enrollmentRepository.existsByStudentIdAndCourseId(student.getId(), session.getCourse().getId());
+            if (!isEnrolled) {
+                throw new RuntimeException("Access denied: You are not enrolled in the course for this live session.");
+            }
         }
 
         AttendanceEntity attendance = new AttendanceEntity();
@@ -156,15 +188,62 @@ public class LiveSessionService {
         }
 
         session.setTitle(request.getTitle());
-        session.setMeetingLink(request.getMeetingLink());
         session.setStartTime(request.getStartTime());
         session.setEndTime(request.getEndTime());
+        if (request.getMaxParticipants() != null) {
+            session.setMaxParticipants(request.getMaxParticipants());
+        }
+        if (request.getChatEnabled() != null) {
+            session.setChatEnabled(request.getChatEnabled());
+        }
+        if (request.getGuestAccessEnabled() != null) {
+            session.setGuestAccessEnabled(request.getGuestAccessEnabled());
+        }
         LiveSessionEntity saved = liveSessionRepository.save(session);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionRescheduledEvent(
                 saved.getId(), saved.getCourse().getId(), saved.getTitle(), saved.getStartTime()
         ));
         return saved;
+    }
+
+    @Transactional
+    public LiveSessionEntity uploadRecording(Long sessionId, MultipartFile file, String teacherEmail) throws IOException {
+        LiveSessionEntity session = liveSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        if (!session.getTeacher().getEmail().equals(teacherEmail)) {
+            throw new RuntimeException("You are not authorized to upload recording for this session");
+        }
+
+        session.setRecordingStatus(RecordingStatus.PROCESSING);
+        liveSessionRepository.saveAndFlush(session);
+
+        try {
+            String fileUrl = azureBlobStorageService.uploadFile(file);
+            session.setRecordingUrl(fileUrl);
+            session.setRecordingStatus(RecordingStatus.AVAILABLE);
+        } catch (Exception e) {
+            session.setRecordingStatus(RecordingStatus.NONE);
+            liveSessionRepository.save(session);
+            throw e;
+        }
+
+        return liveSessionRepository.save(session);
+    }
+
+    @Transactional
+    public LiveSessionEntity deleteRecording(Long sessionId, String teacherEmail) {
+        LiveSessionEntity session = liveSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        if (!session.getTeacher().getEmail().equals(teacherEmail)) {
+            throw new RuntimeException("You are not authorized to delete recording for this session");
+        }
+
+        session.setRecordingUrl(null);
+        session.setRecordingStatus(RecordingStatus.DELETED);
+        return liveSessionRepository.save(session);
     }
 
     @Transactional
@@ -205,5 +284,16 @@ public class LiveSessionService {
                 .filter(s -> s.getStatus() == SessionStatus.SCHEDULED || s.getStatus() == SessionStatus.LIVE)
                 .sorted((s1, s2) -> s1.getStartTime().compareTo(s2.getStartTime()))
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    @org.springframework.context.event.EventListener
+    @Transactional
+    public void onCourseDeleted(DomainEvents.CourseDeletedEvent event) {
+        List<LiveSessionEntity> sessions = liveSessionRepository.findByCourseId(event.courseId());
+        for (LiveSessionEntity session : sessions) {
+            List<AttendanceEntity> attendances = attendanceRepository.findByLiveSessionId(session.getId());
+            attendanceRepository.deleteAll(attendances);
+        }
+        liveSessionRepository.deleteAll(sessions);
     }
 }

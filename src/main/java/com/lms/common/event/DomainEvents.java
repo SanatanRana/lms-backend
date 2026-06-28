@@ -20,6 +20,7 @@ public final class DomainEvents {
 
     // ── Course Events ──────────────────────────────────────────────
     public record CourseCreatedEvent(Long courseId, String title, Long teacherId) {}
+    public record CourseDeletedEvent(Long courseId) {}
 
     // ── Enrollment Events ──────────────────────────────────────────
     public record CourseEnrolledEvent(Long enrollmentId, Long studentId, Long courseId) {}

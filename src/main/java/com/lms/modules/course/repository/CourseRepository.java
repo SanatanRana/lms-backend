@@ -13,8 +13,10 @@ public interface CourseRepository extends JpaRepository<CourseEntity, Long> {
 
     List<CourseEntity> findByTeacherId(Long teacherId);
 
-    List<CourseEntity> findByCategory(String category);
+    List<CourseEntity> findByActiveTrue();
 
-    @Query("SELECT c FROM CourseEntity c WHERE LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(c.description) LIKE LOWER(CONCAT('%', :keyword, '%'))")
-    List<CourseEntity> searchByTitleOrDescription(@Param("keyword") String keyword);
+    List<CourseEntity> findByCategoryAndActiveTrue(String category);
+
+    @Query("SELECT c FROM CourseEntity c WHERE c.active = true AND (LOWER(c.title) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(c.description) LIKE LOWER(CONCAT('%', :keyword, '%')))")
+    List<CourseEntity> searchActiveByTitleOrDescription(@Param("keyword") String keyword);
 }

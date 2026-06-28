@@ -5,6 +5,7 @@ import com.lms.common.enums.SessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface LiveSessionRepository extends JpaRepository<LiveSessionEntity, Long> {
@@ -13,4 +14,5 @@ public interface LiveSessionRepository extends JpaRepository<LiveSessionEntity, 
     List<LiveSessionEntity> findByStatus(SessionStatus status);
     List<LiveSessionEntity> findByCourseIdAndStatus(Long courseId, SessionStatus status);
     List<LiveSessionEntity> findByCourseIdIn(List<Long> courseIds);
+    Optional<LiveSessionEntity> findByRoomToken(String roomToken);
 }

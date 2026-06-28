@@ -39,6 +39,10 @@ public class EnrollmentService {
         CourseEntity course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new RuntimeException("Course not found"));
 
+        if (!course.isActive()) {
+            throw new RuntimeException("This course is archived and no longer accepts new enrollments");
+        }
+
         // Check if already enrolled
         if (enrollmentRepository.existsByStudentIdAndCourseId(student.getId(), courseId)) {
             throw new RuntimeException("You are already enrolled in this course");

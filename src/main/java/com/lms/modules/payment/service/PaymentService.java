@@ -68,6 +68,10 @@ public class PaymentService {
         CourseEntity course = courseRepository.findById(request.getCourseId())
                 .orElseThrow(() -> new RuntimeException("Course not found"));
 
+        if (!course.isActive()) {
+            throw new RuntimeException("Cannot purchase an archived or unpublished course");
+        }
+
         Double finalAmount = course.getPrice();
 
         // Apply coupon if provided
@@ -152,5 +156,12 @@ public class PaymentService {
         UserEntity user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         return paymentRepository.findByUserId(user.getId());
+    }
+
+    @org.springframework.context.event.EventListener
+    @Transactional
+    public void onCourseDeleted(DomainEvents.CourseDeletedEvent event) {
+        List<PaymentEntity> payments = paymentRepository.findByCourseId(event.courseId());
+        paymentRepository.deleteAll(payments);
     }
 }

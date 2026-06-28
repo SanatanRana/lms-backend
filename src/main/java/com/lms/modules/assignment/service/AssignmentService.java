@@ -97,4 +97,15 @@ public class AssignmentService {
         submission.setFeedback(feedback);
         return submissionRepository.save(submission);
     }
+
+    @org.springframework.context.event.EventListener
+    @Transactional
+    public void onCourseDeleted(DomainEvents.CourseDeletedEvent event) {
+        List<AssignmentEntity> assignments = assignmentRepository.findByCourseId(event.courseId());
+        for (AssignmentEntity assignment : assignments) {
+            List<AssignmentSubmissionEntity> submissions = submissionRepository.findByAssignmentId(assignment.getId());
+            submissionRepository.deleteAll(submissions);
+        }
+        assignmentRepository.deleteAll(assignments);
+    }
 }

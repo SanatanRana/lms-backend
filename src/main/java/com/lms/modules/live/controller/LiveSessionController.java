@@ -11,6 +11,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 @RestController
@@ -96,5 +97,24 @@ public class LiveSessionController {
             @PathVariable Long id, Authentication authentication) {
         liveSessionService.deleteSession(id, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success("Session deleted successfully", null));
+    }
+
+    @PostMapping("/{id}/recording")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<LiveSessionEntity>> uploadRecording(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file,
+            Authentication authentication) throws java.io.IOException {
+        return ResponseEntity.ok(ApiResponse.success("Recording uploaded successfully",
+                liveSessionService.uploadRecording(id, file, authentication.getName())));
+    }
+
+    @DeleteMapping("/{id}/recording")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<LiveSessionEntity>> deleteRecording(
+            @PathVariable Long id,
+            Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success("Recording deleted successfully",
+                liveSessionService.deleteRecording(id, authentication.getName())));
     }
 }

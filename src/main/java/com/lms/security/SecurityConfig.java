@@ -45,7 +45,9 @@ public class SecurityConfig {
                     "/api/courses/all",
                     "/api/courses/{id}",
                     "/api/courses/search",
-                    "/api/courses/category/**"
+                    "/api/courses/category/**",
+                    "/api/live/room/**",
+                    "/ws/signaling/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )

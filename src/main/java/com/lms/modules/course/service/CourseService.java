@@ -6,6 +6,7 @@ import com.lms.modules.course.dto.CourseRequest;
 import com.lms.modules.course.dto.CourseResponse;
 import com.lms.modules.course.entity.CourseEntity;
 import com.lms.modules.course.repository.CourseRepository;
+import com.lms.modules.course.repository.EnrollmentRepository;
 import com.lms.modules.user.entity.UserEntity;
 import com.lms.modules.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,9 @@ public class CourseService {
 
     @Autowired
     private CourseRepository courseRepository;
+
+    @Autowired
+    private EnrollmentRepository enrollmentRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -56,7 +60,7 @@ public class CourseService {
 
     @Transactional(readOnly = true)
     public List<CourseResponse> getAllCourses() {
-        return courseRepository.findAll().stream()
+        return courseRepository.findByActiveTrue().stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -79,16 +83,82 @@ public class CourseService {
 
     @Transactional(readOnly = true)
     public List<CourseResponse> searchCourses(String keyword) {
-        return courseRepository.searchByTitleOrDescription(keyword).stream()
+        return courseRepository.searchActiveByTitleOrDescription(keyword).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<CourseResponse> getCoursesByCategory(String category) {
-        return courseRepository.findByCategory(category).stream()
+        return courseRepository.findByCategoryAndActiveTrue(category).stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public CourseResponse updateCourse(Long id, CourseRequest request, String teacherEmail) {
+        CourseEntity course = courseRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+        
+        UserEntity user = userRepository.findByEmail(teacherEmail)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        boolean isAdmin = user.getRole() == com.lms.common.enums.Role.ADMIN;
+        if (!isAdmin && !course.getTeacher().getEmail().equals(teacherEmail)) {
+            throw new RuntimeException("You are not authorized to update this course");
+        }
+
+        course.setTitle(request.getTitle());
+        course.setDescription(request.getDescription());
+        course.setPrice(request.getPrice() != null ? request.getPrice() : 0.0);
+        course.setDiscountPrice(request.getDiscountPrice());
+        course.setThumbnailUrl(request.getThumbnailUrl());
+        course.setIntroVideoUrl(request.getIntroVideoUrl());
+        course.setCategory(request.getCategory());
+        course.setCourseType(request.getPrice() != null && request.getPrice() > 0 ? CourseType.PAID : CourseType.FREE);
+
+        CourseEntity saved = courseRepository.save(course);
+        return mapToResponse(saved);
+    }
+
+    @Transactional
+    public void deleteCourse(Long id, String teacherEmail) {
+        CourseEntity course = courseRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+        
+        UserEntity user = userRepository.findByEmail(teacherEmail)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        boolean isAdmin = user.getRole() == com.lms.common.enums.Role.ADMIN;
+        if (!isAdmin && !course.getTeacher().getEmail().equals(teacherEmail)) {
+            throw new RuntimeException("You are not authorized to delete this course");
+        }
+
+        long enrollmentCount = enrollmentRepository.countByCourseId(id);
+        if (enrollmentCount == 0) {
+            // Hard Delete
+            eventPublisher.publishEvent(new DomainEvents.CourseDeletedEvent(id));
+            courseRepository.delete(course);
+        } else {
+            // Soft Delete / Archive
+            course.setActive(false);
+            courseRepository.save(course);
+        }
+    }
+
+    @Transactional
+    public CourseResponse restoreCourse(Long id, String teacherEmail) {
+        CourseEntity course = courseRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Course not found"));
+        
+        UserEntity user = userRepository.findByEmail(teacherEmail)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        boolean isAdmin = user.getRole() == com.lms.common.enums.Role.ADMIN;
+        if (!isAdmin && !course.getTeacher().getEmail().equals(teacherEmail)) {
+            throw new RuntimeException("You are not authorized to restore this course");
+        }
+
+        course.setActive(true);
+        CourseEntity saved = courseRepository.save(course);
+        return mapToResponse(saved);
     }
 
     /**
@@ -110,6 +180,7 @@ public class CourseService {
         r.setTeacherId(course.getTeacher() != null ? course.getTeacher().getId() : null);
         r.setCreatedAt(course.getCreatedAt());
         r.setSectionCount(course.getSections() != null ? course.getSections().size() : 0);
+        r.setActive(course.isActive());
         return r;
     }
 }

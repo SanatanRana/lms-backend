@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 public class LiveSessionRequest {
     private Long courseId;
     private String title;
-    private String meetingLink;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
+    private Integer maxParticipants;
+    private Boolean chatEnabled;
+    private Boolean guestAccessEnabled;
 }

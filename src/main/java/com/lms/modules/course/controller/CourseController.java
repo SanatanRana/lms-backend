@@ -53,4 +53,28 @@ public class CourseController {
     public ResponseEntity<ApiResponse<List<CourseResponse>>> getTeacherCourses(Authentication authentication) {
         return ResponseEntity.ok(ApiResponse.success("Teacher courses", courseService.getCoursesByTeacher(authentication.getName())));
     }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<CourseResponse>> updateCourse(
+            @PathVariable Long id, @RequestBody CourseRequest request, Authentication authentication) {
+        CourseResponse course = courseService.updateCourse(id, request, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success("Course updated successfully", course));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteCourse(
+            @PathVariable Long id, Authentication authentication) {
+        courseService.deleteCourse(id, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success("Course deleted/archived successfully", null));
+    }
+
+    @PostMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<CourseResponse>> restoreCourse(
+            @PathVariable Long id, Authentication authentication) {
+        CourseResponse course = courseService.restoreCourse(id, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success("Course restored successfully", course));
+    }
 }

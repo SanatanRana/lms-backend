@@ -22,4 +22,5 @@ public class CourseResponse {
     private Long teacherId;
     private LocalDateTime createdAt;
     private int sectionCount;
+    private boolean active;
 }
