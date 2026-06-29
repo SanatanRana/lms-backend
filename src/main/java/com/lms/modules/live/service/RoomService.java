@@ -62,14 +62,14 @@ public class RoomService {
     /**
      * Add a participant to a room.
      */
-    public Participant joinRoom(Long sessionId, String wsSessionId, String name, String role, Long userId) {
+    public Participant joinRoom(Long sessionId, String wsSessionId, String name, String role, Long userId, boolean audioMuted, boolean videoMuted) {
         Room room = activeRooms.get(sessionId);
         if (room == null) {
             throw new RuntimeException("Room not found for session: " + sessionId);
         }
 
         Participant participant = new Participant(
-            wsSessionId, name, role, userId, true, true, System.currentTimeMillis()
+            wsSessionId, name, role, userId, audioMuted, videoMuted, System.currentTimeMillis()
         );
         room.participantIds().add(wsSessionId);
         room.participants().put(wsSessionId, participant);

@@ -147,13 +147,16 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
             }
         }
 
+        boolean audioMuted = payload.has("audioMuted") ? payload.get("audioMuted").asBoolean() : true;
+        boolean videoMuted = payload.has("videoMuted") ? payload.get("videoMuted").asBoolean() : true;
+
         // Create room if it doesn't exist (teacher starting)
         if (!roomService.isRoomActive(roomId)) {
             roomService.createRoom(roomId);
         }
 
         RoomService.Participant participant = roomService.joinRoom(
-            roomId, session.getId(), name, role, userId
+            roomId, session.getId(), name, role, userId, audioMuted, videoMuted
         );
         sessionToRoom.put(session.getId(), roomId);
 
