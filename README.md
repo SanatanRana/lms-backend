@@ -1,6 +1,6 @@
 # 📚 LMS Backend — Learning Management System
 
-> A production-grade, modular **Learning Management System** backend built with **Spring Boot 4.0**, featuring JWT authentication, role-based access control, event-driven notifications, pluggable payment gateways, AI-powered chat, and Azure Blob Storage integration.
+> A production-grade, modular **Learning Management System** backend built with **Spring Boot 4.0**, featuring JWT authentication, role-based access control, event-driven notifications, **WebRTC live classrooms with WebSocket signaling**, pluggable payment gateways, AI-powered chat, and Azure Blob Storage integration.
 
 ---
 
@@ -13,6 +13,7 @@
 - [Features](#-features)
 - [Roles & Permissions](#-roles--permissions)
 - [API Endpoints & Interactions](#-api-endpoints--interactions)
+- [WebSocket Protocol](#-websocket-protocol)
 - [Database Schema](#-database-schema)
 - [Entity Relationship Diagram](#-entity-relationship-diagram)
 - [Design Patterns](#-design-patterns)
@@ -32,9 +33,9 @@ The project follows a **Modular Monolith** architecture with clear separation of
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        CLIENT (Frontend)                            │
 │                  React / Next.js (Port 5173/3000)                   │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │ HTTP/REST (JSON)
-                               ▼
+└──────────┬───────────────────────────────────────┬──────────────────┘
+           │ HTTP/REST (JSON)                      │ WebSocket (ws://)
+           ▼                                       ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    SPRING BOOT APPLICATION                          │
 │                       (Port 8080)                                   │
@@ -46,10 +47,15 @@ The project follows a **Modular Monolith** architecture with clear separation of
 │  │                   CONTROLLER LAYER                            │  │
 │  │  AuthCtrl │ CourseCtrl │ PaymentCtrl │ LiveCtrl │ AdminCtrl   │  │
 │  │  EnrollCtrl │ AssignmentCtrl │ NotifCtrl │ AiChatCtrl        │  │
+│  │  LiveRoomCtrl │ SyllabusCtrl │ UploadCtrl                    │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    SERVICE LAYER                              │  │
 │  │  Business logic, validation, event publishing                 │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────────────┐  │
+│  │              WEBSOCKET LAYER (Live Classroom)                 │  │
+│  │  SignalingWebSocketHandler → RoomService → RoomTokenService   │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │               REPOSITORY LAYER (Spring Data JPA)              │  │
@@ -90,9 +96,15 @@ graph TB
         PAY["💳 Payment Module"]
         ASSIGN["📝 Assignment Module"]
         LIVE["🎥 Live Session Module"]
+        ROOM["🏠 Live Room Module"]
         NOTIF["🔔 Notification Module"]
         AI["🤖 AI Chat Module"]
         ADMIN["👑 Admin Module"]
+    end
+
+    subgraph Realtime["⚡ Real-Time Layer"]
+        WS["WebSocket Signaling<br/>/ws/signaling"]
+        RSVC["RoomService<br/>(In-Memory)"]
     end
 
     subgraph Infra["🏛️ Infrastructure"]
@@ -102,9 +114,13 @@ graph TB
     end
 
     FE -->|REST API| CORS
+    FE -->|WebSocket| WS
     CORS --> JWT
     JWT --> SC
     SC --> Modules
+
+    WS --> RSVC
+    ROOM --> RSVC
 
     AUTH --> DB
     COURSE --> DB
@@ -113,6 +129,7 @@ graph TB
     PAY --> DB
     ASSIGN --> DB
     LIVE --> DB
+    LIVE -->|Recording Upload| AZURE
     NOTIF --> DB
     AI --> DB
     ADMIN --> DB
@@ -121,8 +138,10 @@ graph TB
     ENROLL -->|CourseEnrolledEvent| EVENT
     PAY -->|PaymentCompletedEvent| EVENT
     LIVE -->|LiveSessionEvents| EVENT
+    COURSE -->|CourseDeletedEvent| EVENT
     ASSIGN -->|AssignmentSubmittedEvent| EVENT
     EVENT -->|Async| NOTIF
+    EVENT -->|Cascade Delete| LIVE
 ```
 
 ---
@@ -137,9 +156,11 @@ graph TB
 | **Database**     | MySQL with Hibernate ORM                  |
 | **Security**     | Spring Security + JWT (jjwt 0.11.5)       |
 | **Validation**   | Spring Boot Starter Validation            |
+| **WebSocket**    | Spring Boot Starter WebSocket             |
 | **File Storage** | Azure Blob Storage SDK 12.26.0            |
 | **Code Gen**     | Lombok                                    |
 | **API Style**    | RESTful with universal `ApiResponse<T>` envelope |
+| **Real-Time**    | WebSocket + WebRTC signaling              |
 | **Async**        | Spring `@Async` + custom `TaskExecutor`   |
 
 ---
@@ -161,6 +182,7 @@ src/main/java/com/lms/
 │   │   ├── EnrollmentStatus.java         # ACTIVE, COMPLETED, DROPPED
 │   │   ├── PaymentStatus.java            # PENDING, SUCCESS, FAILED, REFUNDED
 │   │   ├── SessionStatus.java            # SCHEDULED, LIVE, ENDED
+│   │   ├── RecordingStatus.java          # NONE, RECORDING, PROCESSING, AVAILABLE, DELETED
 │   │   └── RoleConverter.java            # JPA converter for Role enum
 │   ├── event/
 │   │   └── DomainEvents.java             # All domain event records
@@ -175,17 +197,18 @@ src/main/java/com/lms/
 │   ├── AsyncConfig.java                  # Thread pool for @Async events
 │   ├── AzureStorageConfig.java           # Azure Blob client bean
 │   ├── CorsConfig.java                   # CORS origin whitelist
-│   └── DataSeeder.java                   # Seeds default Admin/Teacher/Student
+│   ├── DataSeeder.java                   # Seeds default Admin/Teacher/Student
+│   └── WebSocketConfig.java              # WebSocket endpoint registration (/ws/signaling)
 │
 ├── security/
-│   ├── SecurityConfig.java               # HTTP security, filter chain
+│   ├── SecurityConfig.java               # HTTP security, filter chain, WebSocket permits
 │   ├── JwtUtil.java                      # Token generation & validation
 │   ├── JwtRequestFilter.java            # Intercepts every request for JWT
 │   └── CustomUserDetailsService.java     # Loads user by email for auth
 │
 └── modules/
     ├── auth/                              # 🔑 Authentication Module
-    │   ├── controller/AuthController.java
+    │   ├── controller/AuthController.java  # register, login, /me profile
     │   ├── service/AuthService.java
     │   └── dto/ (LoginRequest, RegisterRequest, AuthResponse)
     │
@@ -198,12 +221,12 @@ src/main/java/com/lms/
     │
     ├── course/                            # 📖 Course Management Module
     │   ├── controller/
-    │   │   ├── CourseController.java
+    │   │   ├── CourseController.java       # CRUD + soft-delete + restore
     │   │   ├── EnrollmentController.java
     │   │   ├── SyllabusController.java
     │   │   └── UploadController.java
     │   ├── service/
-    │   │   ├── CourseService.java
+    │   │   ├── CourseService.java          # Hard/soft delete, restore
     │   │   ├── EnrollmentService.java
     │   │   ├── SyllabusService.java
     │   │   └── AzureBlobStorageService.java
@@ -226,9 +249,16 @@ src/main/java/com/lms/
     │   ├── repository/ (PaymentRepository, CouponRepository)
     │   └── dto/ (CreateOrderRequest, VerifyPaymentRequest, CouponRequest)
     │
-    ├── live/                              # 🎥 Live Session Module
-    │   ├── controller/LiveSessionController.java
-    │   ├── service/LiveSessionService.java
+    ├── live/                              # 🎥 Live Session & Classroom Module
+    │   ├── controller/
+    │   │   ├── LiveSessionController.java  # Session lifecycle + recording upload/delete
+    │   │   └── LiveRoomController.java     # Room access via token, guest join, fallback
+    │   ├── service/
+    │   │   ├── LiveSessionService.java     # Session CRUD, recording management
+    │   │   ├── RoomService.java            # In-memory room/participant/chat management
+    │   │   └── RoomTokenService.java       # UUID-based shareable room tokens
+    │   ├── websocket/
+    │   │   └── SignalingWebSocketHandler.java  # WebRTC signaling (SDP, ICE, chat, mute)
     │   ├── entity/ (LiveSession, Attendance)
     │   ├── repository/ (LiveSessionRepository, AttendanceRepository)
     │   └── dto/LiveSessionRequest.java
@@ -254,17 +284,24 @@ src/main/java/com/lms/
 ## ✨ Features
 
 ### 🔑 Authentication & Authorization
-- User registration with role selection (Student self-registers; Admin creates Teachers)
+- User registration with role selection (Students auto-activate; Admin creates Teachers)
 - Login with JWT token generation (24-hour expiration)
+- **`/api/auth/me` endpoint** — Fetch current user profile from JWT token (returns id, name, role, email)
+- **Auth response includes `userId`** — Frontend receives userId alongside token, name, and role on login
 - BCrypt password hashing
 - Method-level authorization via `@PreAuthorize`
 - Stateless session management (no server-side sessions)
 
 ### 📖 Course Management
 - Full CRUD for courses with category tagging
+- **Course update** — Teachers/Admins can edit existing courses
+- **Soft-delete & hard-delete** — Courses with enrollments are soft-deleted (archived); empty courses are hard-deleted
+- **Course restore** — Archived courses can be reactivated
+- **Active flag** — Only active courses appear in public listings
 - Course types: **FREE** and **PAID**
 - Hierarchical syllabus structure: **Course → Sections → Lessons**
 - Course resources (PDF, DOC, ZIP, VIDEO) linked to courses
+- **Cascade deletion** — Deleting a course publishes `CourseDeletedEvent`, which auto-deletes associated live sessions and attendance records
 - File uploads up to **500MB** via Azure Blob Storage
 - Public course browsing (no auth required)
 - Search by keyword and filter by category
@@ -296,14 +333,48 @@ src/main/java/com/lms/
 - Teachers grade submissions with score and textual feedback
 - One submission per student per assignment (unique constraint)
 
-### 🎥 Live Sessions & Attendance
+### 🎥 Live Classroom System (WebRTC + WebSocket)
+
+The live classroom is a full-featured **real-time video conferencing** system with:
+
+#### Session Management
 - Schedule, start, end, reschedule, and cancel live sessions
 - Session status lifecycle: `SCHEDULED → LIVE → ENDED`
-- Meeting link management for virtual classrooms
+- **Room tokens** — Each session gets a unique UUID-based shareable join link
+- **Configurable settings** per session:
+  - `maxParticipants` (default: 50)
+  - `chatEnabled` (default: true)
+  - `guestAccessEnabled` (default: true)
+
+#### WebRTC Signaling (WebSocket at `/ws/signaling`)
+- **Full WebRTC negotiation** — SDP offers/answers, ICE candidate exchange
+- **Peer-to-peer video/audio** connection establishment
+- **Screen sharing** support via broadcast messages
+- **JSON-based message protocol** with types: `JOIN_ROOM`, `LEAVE_ROOM`, `OFFER`, `ANSWER`, `ICE_CANDIDATE`, `CHAT_MESSAGE`, `MUTE_TOGGLE`, `SCREEN_SHARE`
+
+#### In-Memory Room Management (`RoomService`)
+- Thread-safe room state via `ConcurrentHashMap`
+- Real-time participant tracking (join/leave with WebSocket session IDs)
+- **Audio/video mute state** synchronization across all participants
+- **Live chat** with message history (capped at 500 messages per room)
+- Participant list broadcast on join/leave events
+- Room auto-creation when teacher starts a session
+- Room cleanup on session end
+
+#### Guest Access & Room Tokens
+- **Public room info endpoint** (`/api/live/room/{roomToken}`) — Pre-join lobby data
+- **Guest join** (`/api/live/room/{roomToken}/guest-join`) — No auth required when guest access is enabled
+- **Enrollment-gated access** — Students must be enrolled in the course (when guest access is disabled)
+- **Fallback endpoint** (`/api/live/room/token-bypass-fallback/{sessionId}`) — Direct session ID access
+
+#### Recording Management
+- **Upload recordings** to Azure Blob Storage per session
+- Recording status lifecycle: `NONE → RECORDING → PROCESSING → AVAILABLE → DELETED`
+- Teachers can upload and delete recordings for their sessions
+
+#### Attendance Tracking
 - Student join/leave tracking with timestamps
 - Attendance records per session
-- Students see sessions for their enrolled courses only
-- Teachers see only their own sessions
 
 ### 🔔 Real-Time Notification System
 - **Event-driven architecture** using Spring Application Events
@@ -335,19 +406,21 @@ src/main/java/com/lms/
 
 ## 🎭 Roles & Permissions
 
-The system implements **three distinct roles**, each with carefully scoped permissions:
+The system implements **three distinct roles**, each with carefully scoped permissions. Live classrooms additionally support a **GUEST** role for unauthenticated participants.
 
 ```mermaid
 graph LR
     subgraph Roles["🎭 Role Hierarchy"]
         ADMIN["👑 ADMIN<br/>(Full Platform Control)"]
-        TEACHER["🧑‍🏫 TEACHER<br/>(Course Management)"]
+        TEACHER["🧑‍🏫 TEACHER<br/>(Course & Classroom Management)"]
         STUDENT["🎓 STUDENT<br/>(Learning & Engagement)"]
+        GUEST["👤 GUEST<br/>(Live Classroom Only)"]
     end
 
     ADMIN -->|manages| TEACHER
     ADMIN -->|manages| STUDENT
     TEACHER -->|teaches| STUDENT
+    TEACHER -->|can allow| GUEST
 ```
 
 ### 👑 ADMIN — Platform Administrator
@@ -355,24 +428,26 @@ graph LR
 | Area | Permissions |
 |:-----|:------------|
 | **Users** | List all users, view details, toggle active/inactive, delete users, register teachers |
-| **Courses** | View all courses with enrollment counts, full course CRUD |
+| **Courses** | View all courses with enrollment counts, full course CRUD, soft-delete, restore |
 | **Enrollments** | View all enrollments, manually enroll students, revoke enrollments |
 | **Payments** | View all transactions, revenue analytics |
 | **Coupons** | Create, update, delete discount coupons |
 | **Analytics** | View total students, teachers, courses, enrollments, total/monthly/yearly revenue |
 | **Content** | Create/edit sections, lessons, and resources |
-| **Live Sessions** | Create, start, end, update, delete sessions |
+| **Live Sessions** | Create, start, end, update, delete sessions, upload/delete recordings |
 | **Assignments** | Create assignments, view and grade submissions |
 
 ### 🧑‍🏫 TEACHER — Instructor
 
 | Area | Permissions |
 |:-----|:------------|
-| **Courses** | Create courses, view own courses |
+| **Courses** | Create, update, delete (soft/hard), restore courses, view own courses |
 | **Syllabus** | Add/edit/delete sections and lessons within own courses |
 | **Resources** | Upload and manage course resources (up to 500MB) |
 | **Assignments** | Create assignments, view submissions, grade with feedback |
 | **Live Sessions** | Schedule, start, end, update, delete live sessions |
+| **Live Classroom** | Configure max participants, chat, guest access per session |
+| **Recordings** | Upload and delete session recordings |
 | **Notifications** | View and manage own notifications |
 | **AI Chat** | Use AI chat assistant |
 
@@ -380,15 +455,23 @@ graph LR
 
 | Area | Permissions |
 |:-----|:------------|
-| **Courses** | Browse all courses (public), search, filter by category |
+| **Courses** | Browse all active courses (public), search, filter by category |
 | **Enrollment** | Self-enroll in free courses, check enrollment status |
 | **Payments** | Create payment orders, verify payments (auto-enrolls on success) |
 | **Progress** | Update course completion percentage |
 | **Syllabus** | View sections, lessons, and resources (enrolled courses only) |
 | **Assignments** | Submit assignments for enrolled courses |
 | **Live Sessions** | Join/leave live sessions, view sessions for enrolled courses |
+| **Live Classroom** | Join via room token (enrollment validated), chat, screen view |
 | **Notifications** | View notifications, unread count, mark as read |
 | **AI Chat** | Use AI chat assistant |
+
+### 👤 GUEST — Unauthenticated Viewer (Live Classroom Only)
+
+| Area | Permissions |
+|:-----|:------------|
+| **Live Classroom** | Join via room token (only if guest access enabled), chat, view stream |
+| **Restrictions** | No enrollment, no assignments, no payment, no course content access |
 
 ---
 
@@ -398,19 +481,23 @@ graph LR
 
 | Method | Endpoint | Auth | Role | Description |
 |:------:|:---------|:----:|:----:|:------------|
-| `POST` | `/register` | ❌ | Any | Register a new user |
-| `POST` | `/login` | ❌ | Any | Login & receive JWT token |
+| `POST` | `/register` | ❌ | Any | Register a new student (auto-activated) |
+| `POST` | `/login` | ❌ | Any | Login & receive JWT + userId + role |
+| `GET` | `/me` | ✅ | Any auth | Get current user profile from JWT |
 
 ### Courses (`/api/courses`)
 
 | Method | Endpoint | Auth | Role | Description |
 |:------:|:---------|:----:|:----:|:------------|
 | `POST` | `/create` | ✅ | TEACHER, ADMIN | Create a new course |
-| `GET` | `/all` | ❌ | Public | List all courses |
+| `GET` | `/all` | ❌ | Public | List all active courses |
 | `GET` | `/{id}` | ❌ | Public | Get course details |
-| `GET` | `/search?keyword=` | ❌ | Public | Search courses |
-| `GET` | `/category/{category}` | ❌ | Public | Filter by category |
+| `GET` | `/search?keyword=` | ❌ | Public | Search active courses |
+| `GET` | `/category/{category}` | ❌ | Public | Filter active courses by category |
 | `GET` | `/my-courses` | ✅ | TEACHER, ADMIN | Get teacher's courses |
+| `PUT` | `/{id}` | ✅ | TEACHER, ADMIN | Update course |
+| `DELETE` | `/{id}` | ✅ | TEACHER, ADMIN | Soft-delete (if enrolled) or hard-delete |
+| `POST` | `/{id}/restore` | ✅ | TEACHER, ADMIN | Restore archived course |
 
 ### Syllabus (`/api`)
 
@@ -466,17 +553,29 @@ graph LR
 
 | Method | Endpoint | Auth | Role | Description |
 |:------:|:---------|:----:|:----:|:------------|
-| `POST` | `/create` | ✅ | TEACHER, ADMIN | Schedule a session |
-| `PATCH` | `/{id}/start` | ✅ | TEACHER, ADMIN | Start session |
-| `PATCH` | `/{id}/end` | ✅ | TEACHER, ADMIN | End session |
-| `POST` | `/{id}/join` | ✅ | STUDENT | Join live session |
+| `POST` | `/create` | ✅ | TEACHER, ADMIN | Schedule a session (generates room token) |
+| `PATCH` | `/{id}/start` | ✅ | TEACHER, ADMIN | Start session (creates in-memory room) |
+| `PATCH` | `/{id}/end` | ✅ | TEACHER, ADMIN | End session (destroys room) |
+| `POST` | `/{id}/join` | ✅ | STUDENT | Join live session (validates enrollment) |
 | `POST` | `/{id}/leave` | ✅ | STUDENT | Leave live session |
 | `GET` | `/course/{courseId}` | ✅ | Any auth | Sessions by course |
 | `GET` | `/enrolled` | ✅ | STUDENT | Sessions for enrolled courses |
 | `GET` | `/my-sessions` | ✅ | TEACHER, ADMIN | Teacher's sessions |
 | `GET` | `/{id}/attendance` | ✅ | TEACHER, ADMIN | Session attendance |
-| `PUT` | `/{id}` | ✅ | TEACHER, ADMIN | Update session |
+| `PUT` | `/{id}` | ✅ | TEACHER, ADMIN | Update session settings |
 | `DELETE` | `/{id}` | ✅ | TEACHER, ADMIN | Delete/cancel session |
+| `POST` | `/{id}/recording` | ✅ | TEACHER, ADMIN | Upload recording (multipart file) |
+| `DELETE` | `/{id}/recording` | ✅ | TEACHER, ADMIN | Delete recording |
+
+### Live Room (`/api/live/room`) — Shareable Link Access
+
+| Method | Endpoint | Auth | Role | Description |
+|:------:|:---------|:----:|:----:|:------------|
+| `GET` | `/{roomToken}` | ❌* | Any | Get room info by shareable token (pre-join lobby) |
+| `POST` | `/{roomToken}/guest-join` | ❌ | Guest | Guest join (requires guest access enabled) |
+| `GET` | `/token-bypass-fallback/{sessionId}` | ❌* | Any | Fallback room info by session ID |
+
+> \* These endpoints are publicly accessible but enforce enrollment checks when guest access is disabled.
 
 ### Notifications (`/api/notifications`)
 
@@ -516,6 +615,91 @@ graph LR
 
 ---
 
+## 📡 WebSocket Protocol
+
+The live classroom uses a JSON-based WebSocket signaling protocol at `ws://localhost:8080/ws/signaling`.
+
+### Connection Flow
+
+```mermaid
+sequenceDiagram
+    participant Teacher as 🧑‍🏫 Teacher
+    participant WS as WebSocket Server
+    participant Room as RoomService
+    participant Student as 🎓 Student
+
+    Teacher->>WS: Connect (ws://host/ws/signaling)
+    WS-->>Teacher: Connection established
+
+    Teacher->>WS: JOIN_ROOM {roomId, name, role: "TEACHER", userId}
+    WS->>Room: createRoom() + joinRoom()
+    WS-->>Teacher: ROOM_JOINED {yourSessionId, participants, chatHistory}
+
+    Student->>WS: Connect
+    Student->>WS: JOIN_ROOM {roomId, name, role: "STUDENT", userId}
+    WS->>Room: Verify enrollment
+    WS->>Room: joinRoom()
+    WS-->>Student: ROOM_JOINED {participants}
+    WS-->>Teacher: PARTICIPANT_JOINED {name, role}
+
+    Teacher->>WS: OFFER {sdp, targetId}
+    WS-->>Student: OFFER {sdp, senderId}
+    Student->>WS: ANSWER {sdp, targetId}
+    WS-->>Teacher: ANSWER {sdp, senderId}
+
+    Teacher->>WS: ICE_CANDIDATE {candidate, targetId}
+    WS-->>Student: ICE_CANDIDATE {candidate, senderId}
+
+    Note over Teacher,Student: WebRTC P2P connection established
+
+    Student->>WS: CHAT_MESSAGE {message}
+    WS->>Room: addChatMessage()
+    WS-->>Teacher: CHAT_MESSAGE {senderName, message}
+    WS-->>Student: CHAT_MESSAGE (echo confirmation)
+
+    Student->>WS: MUTE_TOGGLE {mediaType: "audio", muted: true}
+    WS->>Room: updateMuteState()
+    WS-->>Teacher: MUTE_TOGGLE broadcast
+
+    Teacher->>WS: SCREEN_SHARE {sharing: true}
+    WS-->>Student: SCREEN_SHARE broadcast
+```
+
+### Message Types
+
+| Type | Direction | Description |
+|:-----|:----------|:------------|
+| `JOIN_ROOM` | Client → Server | Join a live classroom room |
+| `LEAVE_ROOM` | Client → Server | Leave the room |
+| `ROOM_JOINED` | Server → Client | Room state sent to joining participant |
+| `PARTICIPANT_JOINED` | Server → Others | New participant notification |
+| `PARTICIPANT_LEFT` | Server → Others | Participant departure notification |
+| `OFFER` | Client → Client (via Server) | WebRTC SDP offer (peer-to-peer or broadcast) |
+| `ANSWER` | Client → Client (via Server) | WebRTC SDP answer (targeted) |
+| `ICE_CANDIDATE` | Client → Client (via Server) | WebRTC ICE candidate (targeted or broadcast) |
+| `CHAT_MESSAGE` | Client ↔ Server | Send/receive chat messages |
+| `MUTE_TOGGLE` | Client ↔ Server | Audio/video mute state synchronization |
+| `SCREEN_SHARE` | Client ↔ Server | Screen sharing state broadcast |
+| `ERROR` | Server → Client | Error notification |
+
+### Message Format
+
+```json
+{
+  "type": "JOIN_ROOM",
+  "roomId": 42,
+  "payload": {
+    "name": "John Doe",
+    "role": "STUDENT",
+    "userId": 15,
+    "audioMuted": true,
+    "videoMuted": false
+  }
+}
+```
+
+---
+
 ## 🗃 Database Schema
 
 The system uses **12 database tables** with carefully designed indexes and constraints:
@@ -549,9 +733,11 @@ The system uses **12 database tables** with carefully designed indexes and const
 | `intro_video_url` | VARCHAR(255) | |
 | `course_type` | ENUM | NOT NULL (FREE/PAID) |
 | `category` | VARCHAR(100) | |
+| `active` | BOOLEAN | NOT NULL, DEFAULT true |
 | `teacher_id` | BIGINT | FK → users.id, NOT NULL |
 | `created_at` | DATETIME | Auto-set on create |
-> **Indexes:** `idx_course_teacher`, `idx_course_type`, `idx_course_category`
+> **Indexes:** `idx_course_teacher`, `idx_course_type`, `idx_course_category`  
+> **Note:** Courses have `active` flag for soft-delete/archiving. Only active courses appear in public listings.
 
 ---
 
@@ -673,11 +859,17 @@ The system uses **12 database tables** with carefully designed indexes and const
 | `teacher_id` | BIGINT | FK → users.id, NOT NULL |
 | `title` | VARCHAR(255) | NOT NULL |
 | `meeting_link` | VARCHAR(255) | |
+| `room_token` | VARCHAR(255) | UNIQUE (UUID for shareable join links) |
 | `start_time` | DATETIME | NOT NULL |
 | `end_time` | DATETIME | |
 | `status` | ENUM | NOT NULL (SCHEDULED/LIVE/ENDED) |
+| `recording_url` | VARCHAR(1024) | |
+| `recording_status` | ENUM | NOT NULL (NONE/RECORDING/PROCESSING/AVAILABLE/DELETED) |
+| `max_participants` | INT | DEFAULT 50 |
+| `chat_enabled` | BOOLEAN | DEFAULT true |
+| `guest_access_enabled` | BOOLEAN | DEFAULT true |
 | `created_at` | DATETIME | Auto-set on create |
-> **Indexes:** `idx_live_course`, `idx_live_teacher`, `idx_live_status`
+> **Indexes:** `idx_live_course`, `idx_live_teacher`, `idx_live_status`, `idx_live_room_token` (unique)
 
 ---
 
@@ -743,6 +935,7 @@ erDiagram
         varchar intro_video_url
         enum course_type
         varchar category
+        boolean active
         bigint teacher_id FK
         datetime created_at
     }
@@ -831,9 +1024,15 @@ erDiagram
         bigint teacher_id FK
         varchar title
         varchar meeting_link
+        varchar room_token UK
         datetime start_time
         datetime end_time
         enum status
+        varchar recording_url
+        enum recording_status
+        int max_participants
+        boolean chat_enabled
+        boolean guest_access_enabled
         datetime created_at
     }
 
@@ -938,6 +1137,7 @@ graph LR
         ES["EnrollmentService"]
         PS["PaymentService"]
         LS["LiveSessionService"]
+        CS["CourseService"]
         ASSGN["AssignmentService"]
     end
 
@@ -945,19 +1145,20 @@ graph LR
 
     subgraph Listeners["Event Listeners"]
         NEL["NotificationEventListener<br/>(async)"]
+        LSL["LiveSessionService<br/>(CourseDeletedEvent → cascade delete)"]
         FUTURE1["AuditLogger<br/>(future)"]
-        FUTURE2["AnalyticsTracker<br/>(future)"]
     end
 
     AS -->|UserRegisteredEvent| EVENT
     ES -->|CourseEnrolledEvent| EVENT
     PS -->|PaymentCompleted/Failed| EVENT
     LS -->|LiveSession*Events| EVENT
+    CS -->|CourseDeletedEvent| EVENT
     ASSGN -->|AssignmentSubmittedEvent| EVENT
 
     EVENT --> NEL
+    EVENT --> LSL
     EVENT -.-> FUTURE1
-    EVENT -.-> FUTURE2
 ```
 
 ### 3. Repository Pattern
@@ -969,6 +1170,9 @@ Request/Response DTOs prevent entity leakage and shape API contracts.
 ### 5. Factory Method
 `ApiResponse.success()` and `ApiResponse.error()` static factory methods create consistent response wrappers.
 
+### 6. Room Management Pattern
+The `RoomService` uses an in-memory `ConcurrentHashMap` for thread-safe, real-time room state management with immutable `Participant` and `Room` records.
+
 ---
 
 ## 📡 Event-Driven Architecture
@@ -979,6 +1183,7 @@ All domain events are defined as immutable Java **records** in `DomainEvents.jav
 |:------|:-------------|:---------|
 | `UserRegisteredEvent` | AuthService | Welcome notification |
 | `CourseCreatedEvent` | CourseService | — |
+| `CourseDeletedEvent` | CourseService | **Cascade: deletes live sessions + attendance** |
 | `CourseEnrolledEvent` | EnrollmentService | Enrollment confirmation |
 | `PaymentCompletedEvent` | PaymentService | Payment success notification |
 | `PaymentFailedEvent` | PaymentService | Payment failure alert |
@@ -989,7 +1194,7 @@ All domain events are defined as immutable Java **records** in `DomainEvents.jav
 | `LiveSessionEndedEvent` | LiveSessionService | — |
 | `AssignmentSubmittedEvent` | AssignmentService | — |
 
-> All listeners run `@Async` on a dedicated `taskExecutor` thread pool — HTTP responses return immediately without waiting for notifications.
+> All notification listeners run `@Async` on a dedicated `taskExecutor` thread pool — HTTP responses return immediately without waiting for notifications.
 
 ---
 
@@ -1008,9 +1213,12 @@ sequenceDiagram
     Client->>CORSFilter: HTTP Request
     CORSFilter->>JWTFilter: Pass (if origin allowed)
     
-    alt Public Endpoint
+    alt Public Endpoint (/api/auth/**, /api/courses/all, /api/live/room/**)
         JWTFilter->>SecurityConfig: No token needed
         SecurityConfig->>Controller: Permit
+    else WebSocket Endpoint (/ws/signaling/**)
+        JWTFilter->>SecurityConfig: Permit (auth handled in handler)
+        SecurityConfig->>Controller: Allow WebSocket upgrade
     else Protected Endpoint
         JWTFilter->>JWTFilter: Extract & validate JWT
         JWTFilter->>SecurityConfig: Set Authentication
@@ -1028,10 +1236,23 @@ sequenceDiagram
 - **Stateless JWT** — No server-side sessions, horizontal scaling friendly
 - **BCrypt** password hashing
 - **Method-level security** with `@PreAuthorize` annotations
-- **CORS whitelist** — Configurable allowed origins
+- **CORS whitelist** — Configurable allowed origins (applied to both REST and WebSocket)
 - **Security Headers** — X-Frame-Options: DENY, XSS Protection, CSP
-- **Public endpoints** — Course browsing and auth endpoints are open
+- **Public endpoints** — Course browsing, auth, live room access, and WebSocket signaling
+- **WebSocket authorization** — `SignalingWebSocketHandler` validates enrollment/guest access at the application level
 - **All other endpoints** require valid JWT
+- **Student auto-activation** — Students are active immediately upon registration
+
+### Public (Unauthenticated) Endpoints
+```
+/api/auth/**                    # Register, Login, /me
+/api/courses/all                # Browse all active courses
+/api/courses/{id}               # Course details
+/api/courses/search             # Search courses
+/api/courses/category/**        # Filter by category
+/api/live/room/**               # Room info, guest join (with access checks)
+/ws/signaling/**                # WebSocket signaling (auth in handler)
+```
 
 ---
 
@@ -1079,6 +1300,7 @@ export JWT_SECRET=your_secret_key_at_least_32_characters
 ./mvnw spring-boot:run
 
 # The server starts at http://localhost:8080
+# WebSocket signaling at ws://localhost:8080/ws/signaling
 # Hibernate auto-creates all tables (ddl-auto=update)
 # DataSeeder creates default users on first run
 ```
@@ -1154,7 +1376,50 @@ sequenceDiagram
     PaymentSvc-->>Student: Payment verified & enrolled
 ```
 
-### Teacher Course Creation Flow
+### Live Classroom Session Flow
+
+```mermaid
+sequenceDiagram
+    participant Teacher
+    participant LiveCtrl
+    participant LiveSvc
+    participant RoomSvc
+    participant Student
+    participant WS as WebSocket
+
+    Teacher->>LiveCtrl: POST /api/live/create
+    LiveCtrl->>LiveSvc: createSession() → generates roomToken
+    LiveSvc-->>Teacher: Session with roomToken
+
+    Note over Teacher: Shares join link: /live/join/{roomToken}
+
+    Teacher->>LiveCtrl: PATCH /api/live/{id}/start
+    LiveCtrl->>LiveSvc: startSession()
+    LiveSvc->>RoomSvc: createRoom(sessionId)
+    LiveSvc-->>Teacher: Status: LIVE
+
+    Teacher->>WS: Connect + JOIN_ROOM
+    WS->>RoomSvc: joinRoom(role=TEACHER)
+    WS-->>Teacher: ROOM_JOINED
+
+    Student->>WS: Connect + JOIN_ROOM
+    WS->>WS: Verify enrollment
+    WS->>RoomSvc: joinRoom(role=STUDENT)
+    WS-->>Student: ROOM_JOINED
+    WS-->>Teacher: PARTICIPANT_JOINED
+
+    Note over Teacher,Student: WebRTC P2P established via OFFER/ANSWER/ICE
+
+    Teacher->>LiveCtrl: PATCH /api/live/{id}/end
+    LiveCtrl->>LiveSvc: endSession()
+    LiveSvc->>RoomSvc: destroyRoom()
+
+    Teacher->>LiveCtrl: POST /api/live/{id}/recording (file)
+    LiveCtrl->>LiveSvc: uploadRecording() → Azure Blob
+    LiveSvc-->>Teacher: recordingStatus: AVAILABLE
+```
+
+### Teacher Course Management Flow
 
 ```mermaid
 sequenceDiagram
@@ -1168,7 +1433,7 @@ sequenceDiagram
 
     Teacher->>CourseCtrl: POST /api/courses/create
     CourseCtrl->>CourseSvc: createCourse()
-    CourseSvc-->>Teacher: Course created
+    CourseSvc-->>Teacher: Course created (active=true)
 
     Teacher->>SyllabusCtrl: POST /courses/{id}/sections
     SyllabusCtrl->>SyllabusSvc: addSection()
@@ -1182,10 +1447,26 @@ sequenceDiagram
     Teacher->>SyllabusCtrl: POST /sections/{id}/lessons
     SyllabusCtrl->>SyllabusSvc: addLesson(videoUrl)
     SyllabusSvc-->>Teacher: Lesson added with video
+
+    Teacher->>CourseCtrl: PUT /api/courses/{id}
+    CourseCtrl->>CourseSvc: updateCourse()
+    CourseSvc-->>Teacher: Course updated
+
+    Teacher->>CourseCtrl: DELETE /api/courses/{id}
+    CourseCtrl->>CourseSvc: deleteCourse()
+    alt No enrollments
+        CourseSvc->>CourseSvc: Hard delete + publish CourseDeletedEvent
+    else Has enrollments
+        CourseSvc->>CourseSvc: Soft delete (active=false)
+    end
+
+    Teacher->>CourseCtrl: POST /api/courses/{id}/restore
+    CourseCtrl->>CourseSvc: restoreCourse()
+    CourseSvc-->>Teacher: Course restored (active=true)
 ```
 
 ---
 
 <p align="center">
-  Built with ❤️ using Spring Boot 4.0 &bull; Java 21 &bull; MySQL
+  Built with ❤️ using Spring Boot 4.0 &bull; Java 21 &bull; MySQL &bull; WebSocket
 </p>
