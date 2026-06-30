@@ -23,4 +23,6 @@ public class CourseResponse {
     private LocalDateTime createdAt;
     private int sectionCount;
     private boolean active;
+    private long enrolledStudentsCount;
+    private double revenue;
 }

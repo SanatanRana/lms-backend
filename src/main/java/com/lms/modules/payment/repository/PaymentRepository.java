@@ -24,4 +24,7 @@ public interface PaymentRepository extends JpaRepository<PaymentEntity, Long> {
 
     @Query("SELECT COALESCE(SUM(p.amount), 0.0) FROM PaymentEntity p WHERE p.paymentStatus = com.lms.common.enums.PaymentStatus.SUCCESS AND p.createdAt >= :startDate AND p.createdAt <= :endDate")
     Double sumSuccessfulPaymentsBetween(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
+
+    @Query("SELECT p.course.id, COALESCE(SUM(p.amount), 0.0) FROM PaymentEntity p WHERE p.paymentStatus = com.lms.common.enums.PaymentStatus.SUCCESS AND p.course.id IN :courseIds GROUP BY p.course.id")
+    List<Object[]> sumRevenueByCourseIds(@Param("courseIds") List<Long> courseIds);
 }
