@@ -23,6 +23,9 @@ public interface EnrollmentRepository extends JpaRepository<EnrollmentEntity, Lo
     @Query("SELECT COUNT(e) FROM EnrollmentEntity e WHERE e.course.id = :courseId")
     long countByCourseId(@Param("courseId") Long courseId);
 
+    @Query("SELECT e.course.id, COUNT(e) FROM EnrollmentEntity e WHERE e.course.id IN :courseIds GROUP BY e.course.id")
+    List<Object[]> countEnrollmentsByCourseIds(@Param("courseIds") List<Long> courseIds);
+
     @Query("SELECT e FROM EnrollmentEntity e JOIN FETCH e.course c JOIN FETCH c.teacher WHERE e.student.id = :studentId")
     List<EnrollmentEntity> findByStudentIdWithCourse(@Param("studentId") Long studentId);
 }

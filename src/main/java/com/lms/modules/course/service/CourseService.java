@@ -9,12 +9,14 @@ import com.lms.modules.course.repository.CourseRepository;
 import com.lms.modules.course.repository.EnrollmentRepository;
 import com.lms.modules.user.entity.UserEntity;
 import com.lms.modules.user.repository.UserRepository;
+import com.lms.modules.payment.repository.PaymentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,6 +30,9 @@ public class CourseService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PaymentRepository paymentRepository;
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
@@ -76,8 +81,27 @@ public class CourseService {
     public List<CourseResponse> getCoursesByTeacher(String teacherEmail) {
         UserEntity teacher = userRepository.findByEmail(teacherEmail)
                 .orElseThrow(() -> new RuntimeException("Teacher not found"));
-        return courseRepository.findByTeacherId(teacher.getId()).stream()
-                .map(this::mapToResponse)
+        List<CourseEntity> courses = courseRepository.findByTeacherId(teacher.getId());
+        if (courses.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<Long> courseIds = courses.stream().map(CourseEntity::getId).collect(Collectors.toList());
+        List<Object[]> enrollmentsData = enrollmentRepository.countEnrollmentsByCourseIds(courseIds);
+        List<Object[]> revenueData = paymentRepository.sumRevenueByCourseIds(courseIds);
+
+        Map<Long, Long> enrollMap = enrollmentsData.stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1], (a, b) -> a));
+        Map<Long, Double> revMap = revenueData.stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Double) row[1], (a, b) -> a));
+
+        return courses.stream()
+                .map(c -> {
+                    CourseResponse r = mapToResponse(c);
+                    r.setEnrolledStudentsCount(enrollMap.getOrDefault(c.getId(), 0L));
+                    r.setRevenue(revMap.getOrDefault(c.getId(), 0.0));
+                    return r;
+                })
                 .collect(Collectors.toList());
     }
 

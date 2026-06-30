@@ -28,6 +28,7 @@ import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.lms.modules.auth.dto.RegisterRequest;
@@ -191,6 +192,15 @@ public class AdminService {
     @Transactional(readOnly = true)
     public List<AdminCourseResponse> getAllCourses() {
         List<CourseEntity> courses = courseRepository.findAll();
+        if (courses.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<Long> courseIds = courses.stream().map(CourseEntity::getId).collect(Collectors.toList());
+        List<Object[]> enrollmentsData = enrollmentRepository.countEnrollmentsByCourseIds(courseIds);
+        Map<Long, Long> enrollMap = enrollmentsData.stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1], (a, b) -> a));
+
         return courses.stream().map(c -> {
             AdminCourseResponse resp = new AdminCourseResponse();
             resp.setId(c.getId());
@@ -202,7 +212,7 @@ public class AdminService {
                 resp.setTeacherName(c.getTeacher().getName());
                 resp.setTeacherEmail(c.getTeacher().getEmail());
             }
-            resp.setEnrolledStudentsCount(enrollmentRepository.countByCourseId(c.getId()));
+            resp.setEnrolledStudentsCount(enrollMap.getOrDefault(c.getId(), 0L));
             return resp;
         }).collect(Collectors.toList());
     }
