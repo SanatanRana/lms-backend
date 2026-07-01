@@ -20,6 +20,7 @@ public class RoomService {
         Long userId,       // null for guests
         boolean audioMuted,
         boolean videoMuted,
+        boolean chatDisabled,
         long joinedAt
     ) {}
 
@@ -69,7 +70,7 @@ public class RoomService {
         }
 
         Participant participant = new Participant(
-            wsSessionId, name, role, userId, audioMuted, videoMuted, System.currentTimeMillis()
+            wsSessionId, name, role, userId, audioMuted, videoMuted, false, System.currentTimeMillis()
         );
         room.participantIds().add(wsSessionId);
         room.participants().put(wsSessionId, participant);
@@ -110,6 +111,7 @@ public class RoomService {
                     p.userId(),
                     "audio".equals(mediaType) ? muted : p.audioMuted(),
                     "video".equals(mediaType) ? muted : p.videoMuted(),
+                    p.chatDisabled(),
                     p.joinedAt()
                 );
                 room.participants().put(wsSessionId, updated);
@@ -148,6 +150,15 @@ public class RoomService {
     }
 
     /**
+     * Get a specific participant in a room.
+     */
+    public Participant getParticipant(Long sessionId, String wsSessionId) {
+        Room room = activeRooms.get(sessionId);
+        if (room == null) return null;
+        return room.participants().get(wsSessionId);
+    }
+
+    /**
      * Get participant count for a room.
      */
     public int getParticipantCount(Long sessionId) {
@@ -182,5 +193,20 @@ public class RoomService {
      */
     public int getActiveRoomCount() {
         return activeRooms.size();
+    }
+
+    /**
+     * Update a participant's chat access.
+     */
+    public void setChatDisabled(Long sessionId, String wsSessionId, boolean disabled) {
+        Room room = activeRooms.get(sessionId);
+        if (room != null && room.participants().containsKey(wsSessionId)) {
+            Participant old = room.participants().get(wsSessionId);
+            Participant updated = new Participant(
+                old.sessionWsId(), old.name(), old.role(), old.userId(),
+                old.audioMuted(), old.videoMuted(), disabled, old.joinedAt()
+            );
+            room.participants().put(wsSessionId, updated);
+        }
     }
 }
