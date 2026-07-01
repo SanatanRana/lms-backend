@@ -282,6 +282,7 @@ public class LiveSessionService {
 
         return liveSessionRepository.findByCourseIdIn(courseIds).stream()
                 .filter(s -> s.getStatus() == SessionStatus.SCHEDULED || s.getStatus() == SessionStatus.LIVE)
+                .filter(s -> s.getEndTime() == null || s.getEndTime().isAfter(LocalDateTime.now()))
                 .sorted((s1, s2) -> s1.getStartTime().compareTo(s2.getStartTime()))
                 .collect(java.util.stream.Collectors.toList());
     }
