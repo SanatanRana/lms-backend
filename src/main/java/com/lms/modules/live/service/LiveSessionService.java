@@ -87,7 +87,6 @@ public class LiveSessionService {
         LiveSessionEntity session = liveSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
         session.setStatus(SessionStatus.LIVE);
-        session.setStartTime(LocalDateTime.now());
         LiveSessionEntity saved = liveSessionRepository.save(session);
 
         // Initialize active room in memory
