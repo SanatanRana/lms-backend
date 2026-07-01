@@ -53,6 +53,13 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_CE3CED2222524B2FA0AE8908670B534D }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_BD55A40F361E451CAF89FE7E78467EC4 }}
 
+      - name: Stop Azure Web App
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            RG=$(az webapp list --query "[?name=='LMSapplication'].resourceGroup" -o tsv)
+            az webapp stop --name LMSapplication --resource-group $RG
+
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -60,3 +67,11 @@ jobs:
           app-name: 'LMSapplication'
           slot-name: 'Production'
           package: '*.jar'
+
+      - name: Start Azure Web App
+        uses: azure/CLI@v2
+        if: always()
+        with:
+          inlineScript: |
+            RG=$(az webapp list --query "[?name=='LMSapplication'].resourceGroup" -o tsv)
+            az webapp start --name LMSapplication --resource-group $RG
