@@ -77,8 +77,7 @@ public class LiveSessionService {
 
         LiveSessionEntity saved = liveSessionRepository.save(session);
         eventPublisher.publishEvent(new DomainEvents.LiveSessionScheduledEvent(
-                saved.getId(), saved.getCourse().getId(), saved.getTitle(), saved.getStartTime()
-        ));
+                saved.getId(), saved.getCourse().getId(), saved.getTitle(), saved.getStartTime()));
         return saved;
     }
 
@@ -93,8 +92,7 @@ public class LiveSessionService {
         roomService.createRoom(sessionId);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionStartedEvent(
-                saved.getId(), saved.getCourse().getId(), saved.getTitle()
-        ));
+                saved.getId(), saved.getCourse().getId(), saved.getTitle()));
         return saved;
     }
 
@@ -110,8 +108,7 @@ public class LiveSessionService {
         roomService.destroyRoom(sessionId);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionEndedEvent(
-                saved.getId(), saved.getCourse().getId()
-        ));
+                saved.getId(), saved.getCourse().getId()));
         return saved;
     }
 
@@ -126,11 +123,14 @@ public class LiveSessionService {
             throw new RuntimeException("Session has already ended");
         }
 
-        // Validate enrollment if guest access is disabled or if the user is not a teacher
+        // Validate enrollment if guest access is disabled or if the user is not a
+        // teacher
         // Teachers/Admins don't need enrollment checks.
-        boolean isTeacherOrAdmin = student.getRole().name().equals("TEACHER") || student.getRole().name().equals("ADMIN");
+        boolean isTeacherOrAdmin = student.getRole().name().equals("TEACHER")
+                || student.getRole().name().equals("ADMIN");
         if (!isTeacherOrAdmin) {
-            boolean isEnrolled = enrollmentRepository.existsByStudentIdAndCourseId(student.getId(), session.getCourse().getId());
+            boolean isEnrolled = enrollmentRepository.existsByStudentIdAndCourseId(student.getId(),
+                    session.getCourse().getId());
             if (!isEnrolled) {
                 throw new RuntimeException("Access denied: You are not enrolled in the course for this live session.");
             }
@@ -201,13 +201,13 @@ public class LiveSessionService {
         LiveSessionEntity saved = liveSessionRepository.save(session);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionRescheduledEvent(
-                saved.getId(), saved.getCourse().getId(), saved.getTitle(), saved.getStartTime()
-        ));
+                saved.getId(), saved.getCourse().getId(), saved.getTitle(), saved.getStartTime()));
         return saved;
     }
 
     @Transactional
-    public LiveSessionEntity uploadRecording(Long sessionId, MultipartFile file, String teacherEmail) throws IOException {
+    public LiveSessionEntity uploadRecording(Long sessionId, MultipartFile file, String teacherEmail)
+            throws IOException {
         LiveSessionEntity session = liveSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
@@ -261,8 +261,7 @@ public class LiveSessionService {
         liveSessionRepository.delete(session);
 
         eventPublisher.publishEvent(new DomainEvents.LiveSessionCancelledEvent(
-                session.getCourse().getId(), session.getTitle()
-        ));
+                session.getCourse().getId(), session.getTitle()));
     }
 
     @Transactional(readOnly = true)
