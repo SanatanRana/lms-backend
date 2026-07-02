@@ -269,11 +269,9 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
         String message = payload.has("message") ? payload.get("message").asText() : "";
         if (message.isBlank())
             return;
-
         RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
-        if (sender == null)
-            return;
-
+        if (sender == null) return;
+        
         if (sender.chatDisabled()) {
             sendError(session, "Your chat access has been disabled by the instructor.");
             return;
@@ -283,11 +281,12 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
 
         // Broadcast chat to all in room (including sender for confirmation)
         broadcastToRoom(roomId, createMessage("CHAT_MESSAGE", roomId, Map.of(
-                "senderName", sender.name(),
-                "senderRole", sender.role(),
-                "message", message,
-                "timestamp", System.currentTimeMillis(),
-                "senderId", session.getId())), null);
+            "senderName", sender.name(),
+            "senderRole", sender.role(),
+            "message", message,
+            "timestamp", System.currentTimeMillis(),
+            "senderId", session.getId()
+        )), null);
     }
 
     private void handleMuteToggle(WebSocketSession session, Long roomId, JsonNode payload) {
@@ -307,37 +306,41 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void handleForceMute(WebSocketSession session, Long roomId, JsonNode payload) {
-        if (roomId == null || payload == null) return;
+        if (roomId == null || payload == null)
+            return;
         RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
-        if (sender == null || !"TEACHER".equals(sender.role())) return; // Only teachers can force mute
-        
+        if (sender == null || !"TEACHER".equals(sender.role()))
+            return; // Only teachers can force mute
+
         String targetId = payload.has("targetId") ? payload.get("targetId").asText() : null;
         String mediaType = payload.has("mediaType") ? payload.get("mediaType").asText() : null;
-        if (targetId == null || mediaType == null) return;
-        
+        if (targetId == null || mediaType == null)
+            return;
+
         WebSocketSession target = activeSessions.get(targetId);
         if (target != null && target.isOpen()) {
             sendMessage(target, createMessage("FORCE_MUTE", roomId, Map.of(
-                "mediaType", mediaType
-            )));
+                    "mediaType", mediaType)));
         }
     }
-    
+
     private void handleToggleChatAccess(WebSocketSession session, Long roomId, JsonNode payload) {
-        if (roomId == null || payload == null) return;
+        if (roomId == null || payload == null)
+            return;
         RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
-        if (sender == null || !"TEACHER".equals(sender.role())) return; // Only teachers can toggle chat
-        
+        if (sender == null || !"TEACHER".equals(sender.role()))
+            return; // Only teachers can toggle chat
+
         String targetId = payload.has("targetId") ? payload.get("targetId").asText() : null;
         boolean disabled = payload.has("disabled") && payload.get("disabled").asBoolean();
-        if (targetId == null) return;
-        
+        if (targetId == null)
+            return;
+
         roomService.setChatDisabled(roomId, targetId, disabled);
-        
+
         broadcastToRoom(roomId, createMessage("CHAT_ACCESS_CHANGED", roomId, Map.of(
-            "targetId", targetId,
-            "disabled", disabled
-        )), null);
+                "targetId", targetId,
+                "disabled", disabled)), null);
     }
 
     private void handleScreenShare(WebSocketSession session, Long roomId, JsonNode payload) {
@@ -437,12 +440,12 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
     public void handleLiveSessionEnded(LiveSessionEndedEvent event) {
         Long roomId = event.sessionId();
         System.out.println("[SignalingWS] Handling LiveSessionEndedEvent for room: " + roomId);
-        
+
         // 1. Broadcast "ROOM_ENDED" message to all participants in this room
         String endMessage = createMessage("ROOM_ENDED", roomId, Map.of(
                 "message", "The live class has been ended by the instructor."));
         broadcastToRoom(roomId, endMessage, null);
-        
+
         // 2. Close all WebSocket sessions of participants in this room
         RoomService.Room room = roomService.getRoom(roomId);
         if (room != null) {
