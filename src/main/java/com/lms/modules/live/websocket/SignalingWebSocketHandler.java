@@ -75,6 +75,8 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
             case "CHAT_MESSAGE" -> handleChatMessage(session, roomId, payload);
             case "MUTE_TOGGLE" -> handleMuteToggle(session, roomId, payload);
             case "SCREEN_SHARE" -> handleScreenShare(session, roomId, payload);
+            case "FORCE_MUTE" -> handleForceMute(session, roomId, payload);
+            case "TOGGLE_CHAT_ACCESS" -> handleToggleChatAccess(session, roomId, payload);
             default -> sendError(session, "Unknown message type: " + type);
         }
     }
@@ -268,20 +270,21 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
         if (message.isBlank())
             return;
 
-        RoomService.Room room = roomService.getRoom(roomId);
-        if (room == null)
+        RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
+        if (sender == null)
             return;
 
-        RoomService.Participant sender = room.participants().get(session.getId());
-        String senderName = sender != null ? sender.name() : "Anonymous";
-        String senderRole = sender != null ? sender.role() : "GUEST";
+        if (sender.chatDisabled()) {
+            sendError(session, "Your chat access has been disabled by the instructor.");
+            return;
+        }
 
-        roomService.addChatMessage(roomId, senderName, senderRole, message);
+        roomService.addChatMessage(roomId, sender.name(), sender.role(), message);
 
         // Broadcast chat to all in room (including sender for confirmation)
         broadcastToRoom(roomId, createMessage("CHAT_MESSAGE", roomId, Map.of(
-                "senderName", senderName,
-                "senderRole", senderRole,
+                "senderName", sender.name(),
+                "senderRole", sender.role(),
                 "message", message,
                 "timestamp", System.currentTimeMillis(),
                 "senderId", session.getId())), null);
@@ -296,11 +299,45 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
         // Update active in-memory room state
         roomService.updateMuteState(roomId, session.getId(), mediaType, muted);
 
-        // Broadcast mute state to all participants
+        // Broadcast to all to update UI
         broadcastToRoom(roomId, createMessage("MUTE_TOGGLE", roomId, Map.of(
                 "sessionId", session.getId(),
                 "mediaType", mediaType,
                 "muted", muted)), null);
+    }
+
+    private void handleForceMute(WebSocketSession session, Long roomId, JsonNode payload) {
+        if (roomId == null || payload == null) return;
+        RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
+        if (sender == null || !"TEACHER".equals(sender.role())) return; // Only teachers can force mute
+        
+        String targetId = payload.has("targetId") ? payload.get("targetId").asText() : null;
+        String mediaType = payload.has("mediaType") ? payload.get("mediaType").asText() : null;
+        if (targetId == null || mediaType == null) return;
+        
+        WebSocketSession target = activeSessions.get(targetId);
+        if (target != null && target.isOpen()) {
+            sendMessage(target, createMessage("FORCE_MUTE", roomId, Map.of(
+                "mediaType", mediaType
+            )));
+        }
+    }
+    
+    private void handleToggleChatAccess(WebSocketSession session, Long roomId, JsonNode payload) {
+        if (roomId == null || payload == null) return;
+        RoomService.Participant sender = roomService.getParticipant(roomId, session.getId());
+        if (sender == null || !"TEACHER".equals(sender.role())) return; // Only teachers can toggle chat
+        
+        String targetId = payload.has("targetId") ? payload.get("targetId").asText() : null;
+        boolean disabled = payload.has("disabled") && payload.get("disabled").asBoolean();
+        if (targetId == null) return;
+        
+        roomService.setChatDisabled(roomId, targetId, disabled);
+        
+        broadcastToRoom(roomId, createMessage("CHAT_ACCESS_CHANGED", roomId, Map.of(
+            "targetId", targetId,
+            "disabled", disabled
+        )), null);
     }
 
     private void handleScreenShare(WebSocketSession session, Long roomId, JsonNode payload) {
@@ -326,6 +363,7 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
             info.put("role", p.role());
             info.put("audioMuted", p.audioMuted());
             info.put("videoMuted", p.videoMuted());
+            info.put("chatDisabled", p.chatDisabled());
             list.add(info);
         }
         return list;
