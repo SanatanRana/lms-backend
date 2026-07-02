@@ -77,8 +77,13 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler {
             case "SCREEN_SHARE" -> handleScreenShare(session, roomId, payload);
             case "FORCE_MUTE" -> handleForceMute(session, roomId, payload);
             case "TOGGLE_CHAT_ACCESS" -> handleToggleChatAccess(session, roomId, payload);
+            case "PING" -> handlePing(session, roomId);
             default -> sendError(session, "Unknown message type: " + type);
         }
+    }
+
+    private void handlePing(WebSocketSession session, Long roomId) {
+        sendMessage(session, createMessage("PONG", roomId, Map.of()));
     }
 
     @Override
