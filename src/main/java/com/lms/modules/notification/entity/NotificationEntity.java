@@ -8,8 +8,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "notifications", indexes = {
-    @Index(name = "idx_notification_user", columnList = "user_id"),
-    @Index(name = "idx_notification_read", columnList = "is_read")
+    @Index(name = "idx_notification_user_read", columnList = "user_id, is_read")
 })
 @Data
 public class NotificationEntity {

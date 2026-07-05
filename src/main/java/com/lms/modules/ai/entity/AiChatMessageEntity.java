@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "ai_chat_messages", indexes = {
-    @Index(name = "idx_ai_chat_user", columnList = "user_id")
+    @Index(name = "idx_ai_chat_user_date", columnList = "user_id, created_at")
 })
 @Data
 public class AiChatMessageEntity {

@@ -65,8 +65,17 @@ public class CourseService {
 
     @Transactional(readOnly = true)
     public List<CourseResponse> getAllCourses() {
-        return courseRepository.findByActiveTrue().stream()
-                .map(this::mapToResponse)
+        List<CourseEntity> courses = courseRepository.findAllActiveWithTeacher();
+        if (courses.isEmpty()) return java.util.Collections.emptyList();
+
+        // Fetch section counts in one aggregation query instead of per-course lazy loads
+        List<Long> courseIds = courses.stream().map(CourseEntity::getId).collect(Collectors.toList());
+        List<Object[]> sectionCountData = courseRepository.countSectionsByCourseIds(courseIds);
+        Map<Long, Long> sectionCountMap = sectionCountData.stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1], (a, b) -> a));
+
+        return courses.stream()
+                .map(c -> mapToResponse(c, sectionCountMap.getOrDefault(c.getId(), 0L).intValue()))
                 .collect(Collectors.toList());
     }
 
@@ -74,7 +83,7 @@ public class CourseService {
     public CourseResponse getCourseById(Long id) {
         CourseEntity course = courseRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Course not found with id: " + id));
-        return mapToResponse(course);
+        return mapToResponse(course, course.getSections() != null ? course.getSections().size() : 0);
     }
 
     @Transactional(readOnly = true)
@@ -97,7 +106,7 @@ public class CourseService {
 
         return courses.stream()
                 .map(c -> {
-                    CourseResponse r = mapToResponse(c);
+                    CourseResponse r = mapToResponse(c, c.getSections() != null ? c.getSections().size() : 0);
                     r.setEnrolledStudentsCount(enrollMap.getOrDefault(c.getId(), 0L));
                     r.setRevenue(revMap.getOrDefault(c.getId(), 0.0));
                     return r;
@@ -108,14 +117,14 @@ public class CourseService {
     @Transactional(readOnly = true)
     public List<CourseResponse> searchCourses(String keyword) {
         return courseRepository.searchActiveByTitleOrDescription(keyword).stream()
-                .map(this::mapToResponse)
+                .map(c -> mapToResponse(c, c.getSections() != null ? c.getSections().size() : 0))
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<CourseResponse> getCoursesByCategory(String category) {
         return courseRepository.findByCategoryAndActiveTrue(category).stream()
-                .map(this::mapToResponse)
+                .map(c -> mapToResponse(c, c.getSections() != null ? c.getSections().size() : 0))
                 .collect(Collectors.toList());
     }
 
@@ -141,7 +150,7 @@ public class CourseService {
         course.setCourseType(request.getPrice() != null && request.getPrice() > 0 ? CourseType.PAID : CourseType.FREE);
 
         CourseEntity saved = courseRepository.save(course);
-        return mapToResponse(saved);
+        return mapToResponse(saved, saved.getSections() != null ? saved.getSections().size() : 0);
     }
 
     @Transactional
@@ -186,10 +195,10 @@ public class CourseService {
     }
 
     /**
-     * Lightweight DTO mapping – keeps serialized payloads small.
-     * Avoids sending the full teacher entity with password hash.
+     * Maps CourseEntity to response DTO.
+     * Accepts pre-computed sectionCount to avoid triggering lazy loads.
      */
-    private CourseResponse mapToResponse(CourseEntity course) {
+    private CourseResponse mapToResponse(CourseEntity course, int sectionCount) {
         CourseResponse r = new CourseResponse();
         r.setId(course.getId());
         r.setTitle(course.getTitle());
@@ -203,8 +212,14 @@ public class CourseService {
         r.setTeacherName(course.getTeacher() != null ? course.getTeacher().getName() : null);
         r.setTeacherId(course.getTeacher() != null ? course.getTeacher().getId() : null);
         r.setCreatedAt(course.getCreatedAt());
-        r.setSectionCount(course.getSections() != null ? course.getSections().size() : 0);
+        r.setSectionCount(sectionCount);
         r.setActive(course.isActive());
         return r;
+    }
+
+    /** Convenience overload — uses loaded sections list size directly. */
+    private CourseResponse mapToResponse(CourseEntity course) {
+        int sectionCount = course.getSections() != null ? course.getSections().size() : 0;
+        return mapToResponse(course, sectionCount);
     }
 }

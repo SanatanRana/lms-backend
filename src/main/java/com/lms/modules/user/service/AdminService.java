@@ -9,13 +9,16 @@ import com.lms.modules.course.entity.CourseEntity;
 import com.lms.modules.course.entity.EnrollmentEntity;
 import com.lms.modules.course.repository.CourseRepository;
 import com.lms.modules.course.repository.EnrollmentRepository;
+import com.lms.modules.payment.dto.PaymentResponse;
 import com.lms.modules.payment.entity.CouponEntity;
 import com.lms.modules.payment.entity.PaymentEntity;
 import com.lms.modules.payment.repository.CouponRepository;
 import com.lms.modules.payment.repository.PaymentRepository;
+import com.lms.modules.payment.service.PaymentService;
 import com.lms.modules.user.dto.AdminUserDetailResponse;
 import com.lms.modules.user.dto.AnalyticsResponse;
 import com.lms.modules.user.dto.MonthlyRevenueStats;
+import com.lms.modules.user.dto.UserResponse;
 import com.lms.modules.user.entity.UserEntity;
 import com.lms.modules.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,70 +49,42 @@ import com.lms.modules.assignment.repository.AssignmentSubmissionRepository;
 import com.lms.modules.assignment.entity.AssignmentSubmissionEntity;
 import com.lms.modules.course.repository.CourseResourceRepository;
 import com.lms.modules.course.entity.CourseResourceEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 @Service
 public class AdminService {
 
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private CourseRepository courseRepository;
-
-    @Autowired
-    private EnrollmentRepository enrollmentRepository;
-
-    @Autowired
-    private PaymentRepository paymentRepository;
-
-    @Autowired
-    private CouponRepository couponRepository;
-
-    @Autowired
-    private ApplicationEventPublisher eventPublisher;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private NotificationRepository notificationRepository;
-
-    @Autowired
-    private AiChatMessageRepository aiChatMessageRepository;
-
-    @Autowired
-    private AttendanceRepository attendanceRepository;
-
-    @Autowired
-    private LiveSessionRepository liveSessionRepository;
-
-    @Autowired
-    private AssignmentRepository assignmentRepository;
-
-    @Autowired
-    private AssignmentSubmissionRepository assignmentSubmissionRepository;
-
-    @Autowired
-    private CourseResourceRepository courseResourceRepository;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @Autowired private UserRepository userRepository;
+    @Autowired private CourseRepository courseRepository;
+    @Autowired private EnrollmentRepository enrollmentRepository;
+    @Autowired private PaymentRepository paymentRepository;
+    @Autowired private CouponRepository couponRepository;
+    @Autowired private ApplicationEventPublisher eventPublisher;
+    @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private NotificationRepository notificationRepository;
+    @Autowired private AiChatMessageRepository aiChatMessageRepository;
+    @Autowired private AttendanceRepository attendanceRepository;
+    @Autowired private LiveSessionRepository liveSessionRepository;
+    @Autowired private AssignmentRepository assignmentRepository;
+    @Autowired private AssignmentSubmissionRepository assignmentSubmissionRepository;
+    @Autowired private CourseResourceRepository courseResourceRepository;
+    @Autowired private PaymentService paymentService;
 
     @Transactional(readOnly = true)
-    public List<UserEntity> getAllUsers() {
-        return userRepository.findAll();
+    public List<UserResponse> getAllUsers() {
+        return userRepository.findAll().stream()
+                .map(this::toUserResponse)
+                .collect(Collectors.toList());
     }
 
     @Transactional
-    public UserEntity toggleUserActiveStatus(Long id, String adminEmail) {
+    public UserResponse toggleUserActiveStatus(Long id, String adminEmail) {
         UserEntity user = userRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         if (user.getEmail().equalsIgnoreCase(adminEmail)) {
             throw new RuntimeException("You cannot suspend or activate your own account!");
         }
         user.setActive(!user.isActive());
-        return userRepository.save(user);
+        return toUserResponse(userRepository.save(user));
     }
 
     @Transactional(readOnly = true)
@@ -122,16 +97,13 @@ public class AdminService {
         response.setTotalRevenue(paymentRepository.sumSuccessfulPayments());
 
         LocalDateTime now = LocalDateTime.now();
-        
-        // 1. Calculate Monthly Revenue (since 1st of current month)
+
         LocalDateTime monthStart = LocalDateTime.of(now.getYear(), now.getMonth(), 1, 0, 0);
         response.setMonthlyRevenue(paymentRepository.sumSuccessfulPaymentsSince(monthStart));
 
-        // 2. Calculate Yearly Revenue (since Jan 1st of current year)
         LocalDateTime yearStart = LocalDateTime.of(now.getYear(), 1, 1, 0, 0);
         response.setYearlyRevenue(paymentRepository.sumSuccessfulPaymentsSince(yearStart));
 
-        // 3. Compile Monthly Sales for last 6 months
         List<MonthlyRevenueStats> monthlyStats = new ArrayList<>();
         for (int i = 5; i >= 0; i--) {
             LocalDateTime temp = now.minusMonths(i);
@@ -192,9 +164,7 @@ public class AdminService {
     @Transactional(readOnly = true)
     public List<AdminCourseResponse> getAllCourses() {
         List<CourseEntity> courses = courseRepository.findAll();
-        if (courses.isEmpty()) {
-            return java.util.Collections.emptyList();
-        }
+        if (courses.isEmpty()) return java.util.Collections.emptyList();
 
         List<Long> courseIds = courses.stream().map(CourseEntity::getId).collect(Collectors.toList());
         List<Object[]> enrollmentsData = enrollmentRepository.countEnrollmentsByCourseIds(courseIds);
@@ -223,11 +193,8 @@ public class AdminService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentEntity> getAllTransactions() {
-        // Find all payments sorted by ID/Date descending
-        return paymentRepository.findAll().stream()
-                .sorted((p1, p2) -> p2.getId().compareTo(p1.getId()))
-                .collect(Collectors.toList());
+    public List<PaymentResponse> getAllTransactions() {
+        return paymentService.getAllPayments();
     }
 
     @Transactional(readOnly = true)
@@ -259,7 +226,6 @@ public class AdminService {
 
         EnrollmentEntity saved = enrollmentRepository.save(enrollment);
 
-        // Publish registration event so system registers user progress tracking
         eventPublisher.publishEvent(new DomainEvents.CourseEnrolledEvent(
                 saved.getId(), student.getId(), course.getId()
         ));
@@ -278,12 +244,8 @@ public class AdminService {
     @Transactional
     public CouponEntity createCoupon(com.lms.modules.payment.dto.CouponRequest request) {
         String code = request.getCode().trim().toUpperCase();
-        if (code.isEmpty()) {
-            throw new RuntimeException("Coupon code cannot be empty");
-        }
-        if (couponRepository.findByCode(code).isPresent()) {
-            throw new RuntimeException("Coupon code already exists");
-        }
+        if (code.isEmpty()) throw new RuntimeException("Coupon code cannot be empty");
+        if (couponRepository.findByCode(code).isPresent()) throw new RuntimeException("Coupon code already exists");
         if (request.getDiscountPercent() == null || request.getDiscountPercent() < 1 || request.getDiscountPercent() > 100) {
             throw new RuntimeException("Discount percent must be between 1 and 100");
         }
@@ -305,9 +267,7 @@ public class AdminService {
                 .orElseThrow(() -> new RuntimeException("Coupon not found"));
 
         String code = request.getCode().trim().toUpperCase();
-        if (code.isEmpty()) {
-            throw new RuntimeException("Coupon code cannot be empty");
-        }
+        if (code.isEmpty()) throw new RuntimeException("Coupon code cannot be empty");
         if (!coupon.getCode().equals(code) && couponRepository.findByCode(code).isPresent()) {
             throw new RuntimeException("Coupon code already exists");
         }
@@ -326,44 +286,38 @@ public class AdminService {
 
     @Transactional
     public void deleteCoupon(Long id) {
-        if (!couponRepository.existsById(id)) {
-            throw new RuntimeException("Coupon not found");
-        }
+        if (!couponRepository.existsById(id)) throw new RuntimeException("Coupon not found");
         couponRepository.deleteById(id);
     }
 
     @Transactional
-    public UserEntity registerTeacher(RegisterRequest request) {
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
-            throw new RuntimeException("Name cannot be empty!");
-        }
-        if (request.getEmail() == null || !request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
-            throw new RuntimeException("Invalid email format!");
-        }
-        if (request.getPassword() == null || request.getPassword().length() < 6) {
-            throw new RuntimeException("Password must be at least 6 characters long!");
-        }
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new RuntimeException("Email is already registered!");
-        }
+    public UserResponse registerTeacher(RegisterRequest request) {
+        if (request.getName() == null || request.getName().trim().isEmpty()) throw new RuntimeException("Name cannot be empty!");
+        if (request.getEmail() == null || !request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) throw new RuntimeException("Invalid email format!");
+        if (request.getPassword() == null || request.getPassword().length() < 6) throw new RuntimeException("Password must be at least 6 characters long!");
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) throw new RuntimeException("Email is already registered!");
 
         UserEntity user = new UserEntity();
         user.setName(request.getName());
         user.setEmail(request.getEmail());
-        user.setPhone(request.getPhone());
+        user.setPhone(request.getPhone() != null ? request.getPhone() : "");
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(Role.TEACHER);
         user.setActive(true);
 
-        userRepository.save(user);
+        UserEntity saved = userRepository.save(user);
 
         eventPublisher.publishEvent(new DomainEvents.UserRegisteredEvent(
-                user.getId(), user.getEmail(), user.getName(), user.getRole().name()
+                saved.getId(), saved.getEmail(), saved.getName(), saved.getRole().name()
         ));
 
-        return user;
+        return toUserResponse(saved);
     }
 
+    /**
+     * Safe user deletion using ordered JPA cascades.
+     * Replaces the dangerous SET FOREIGN_KEY_CHECKS = 0 approach.
+     */
     @Transactional
     public void deleteUser(Long id, String adminEmail) {
         UserEntity user = userRepository.findById(id)
@@ -372,84 +326,69 @@ public class AdminService {
             throw new RuntimeException("You cannot delete your own account!");
         }
 
-        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0");
-        try {
-            // 1. Delete notifications
-            List<NotificationEntity> notifications = notificationRepository.findByUserIdOrderByCreatedAtDesc(id);
-            notificationRepository.deleteAll(notifications);
+        // 1. Delete notifications
+        notificationRepository.deleteAll(notificationRepository.findByUserIdOrderByCreatedAtDesc(id));
 
-            // 2. Delete AI chat messages
-            List<AiChatMessageEntity> chatMessages = aiChatMessageRepository.findByUserIdOrderByCreatedAtAsc(id);
-            aiChatMessageRepository.deleteAll(chatMessages);
+        // 2. Delete AI chat messages
+        aiChatMessageRepository.deleteAll(aiChatMessageRepository.findByUserIdOrderByCreatedAtAsc(id));
 
-            // 3. Delete attendance records
-            List<AttendanceEntity> attendances = attendanceRepository.findByStudentId(id);
-            attendanceRepository.deleteAll(attendances);
+        // 3. Delete attendance records
+        attendanceRepository.deleteAll(attendanceRepository.findByStudentId(id));
 
-            // 4. Delete assignment submissions
-            List<AssignmentSubmissionEntity> submissions = assignmentSubmissionRepository.findByStudentId(id);
-            assignmentSubmissionRepository.deleteAll(submissions);
+        // 4. Delete assignment submissions
+        assignmentSubmissionRepository.deleteAll(assignmentSubmissionRepository.findByStudentId(id));
 
-            // 5. Delete enrollments
-            List<EnrollmentEntity> enrollments = enrollmentRepository.findByStudentId(id);
-            enrollmentRepository.deleteAll(enrollments);
+        // 5. Delete enrollments
+        enrollmentRepository.deleteAll(enrollmentRepository.findByStudentId(id));
 
-            // 6. Delete payments
-            List<PaymentEntity> payments = paymentRepository.findByUserId(id);
-            paymentRepository.deleteAll(payments);
+        // 6. Delete payments
+        paymentRepository.deleteAll(paymentRepository.findByUserId(id));
 
-            // 7. Delete courses and dependent objects if user is a teacher
-            if (user.getRole() == Role.TEACHER) {
-                List<CourseEntity> teacherCourses = courseRepository.findByTeacherId(id);
-                for (CourseEntity course : teacherCourses) {
-                    // Delete enrollments of this course
-                    List<EnrollmentEntity> courseEnrollments = enrollmentRepository.findByCourseId(course.getId());
-                    enrollmentRepository.deleteAll(courseEnrollments);
-
-                    // Delete payments of this course
-                    List<PaymentEntity> coursePayments = paymentRepository.findByCourseId(course.getId());
-                    paymentRepository.deleteAll(coursePayments);
-
-                    // Delete live sessions of this course
-                    List<LiveSessionEntity> liveSessions = liveSessionRepository.findByCourseId(course.getId());
-                    for (LiveSessionEntity live : liveSessions) {
-                        List<AttendanceEntity> liveAttendances = attendanceRepository.findByLiveSessionId(live.getId());
-                        attendanceRepository.deleteAll(liveAttendances);
-                        liveSessionRepository.delete(live);
-                    }
-
-                    // Delete assignments and submissions of this course
-                    List<AssignmentEntity> assignments = assignmentRepository.findByCourseId(course.getId());
-                    for (AssignmentEntity assign : assignments) {
-                        List<AssignmentSubmissionEntity> assignSubmissions = assignmentSubmissionRepository.findByAssignmentId(assign.getId());
-                        assignmentSubmissionRepository.deleteAll(assignSubmissions);
-                        assignmentRepository.delete(assign);
-                    }
-
-                    // Delete course resources
-                    List<CourseResourceEntity> resources = courseResourceRepository.findByCourseId(course.getId());
-                    courseResourceRepository.deleteAll(resources);
-
-                    // Delete course itself
-                    courseRepository.delete(course);
-                }
-
-                // Delete live sessions created by teacher directly
-                List<LiveSessionEntity> teacherLiveSessions = liveSessionRepository.findByTeacherId(id);
-                for (LiveSessionEntity live : teacherLiveSessions) {
-                    List<AttendanceEntity> liveAttendances = attendanceRepository.findByLiveSessionId(live.getId());
-                    attendanceRepository.deleteAll(liveAttendances);
+        // 7. Delete courses and dependent objects if user is a teacher
+        if (user.getRole() == Role.TEACHER) {
+            List<CourseEntity> teacherCourses = courseRepository.findByTeacherId(id);
+            for (CourseEntity course : teacherCourses) {
+                // Delete enrollments of this course
+                enrollmentRepository.deleteAll(enrollmentRepository.findByCourseId(course.getId()));
+                // Delete payments of this course
+                paymentRepository.deleteAll(paymentRepository.findByCourseId(course.getId()));
+                // Delete live sessions and their attendance
+                for (LiveSessionEntity live : liveSessionRepository.findByCourseId(course.getId())) {
+                    attendanceRepository.deleteAll(attendanceRepository.findByLiveSessionId(live.getId()));
                     liveSessionRepository.delete(live);
                 }
+                // Delete assignments and their submissions
+                for (AssignmentEntity assign : assignmentRepository.findByCourseId(course.getId())) {
+                    assignmentSubmissionRepository.deleteAll(assignmentSubmissionRepository.findByAssignmentId(assign.getId()));
+                    assignmentRepository.delete(assign);
+                }
+                // Delete course resources
+                courseResourceRepository.deleteAll(courseResourceRepository.findByCourseId(course.getId()));
+                // Delete course itself
+                courseRepository.delete(course);
             }
 
-            // 8. Finally delete the user itself
-            userRepository.delete(user);
-
-            // Force Hibernate to flush delete operations inside the FOREIGN_KEY_CHECKS=0 block
-            userRepository.flush();
-        } finally {
-            jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1");
+            // Delete live sessions created by teacher directly (outside courses)
+            for (LiveSessionEntity live : liveSessionRepository.findByTeacherId(id)) {
+                attendanceRepository.deleteAll(attendanceRepository.findByLiveSessionId(live.getId()));
+                liveSessionRepository.delete(live);
+            }
         }
+
+        // 8. Finally delete the user
+        userRepository.delete(user);
+    }
+
+    // ── Helper ──────────────────────────────────────────────────────
+    private UserResponse toUserResponse(UserEntity user) {
+        UserResponse r = new UserResponse();
+        r.setId(user.getId());
+        r.setName(user.getName());
+        r.setEmail(user.getEmail());
+        r.setPhone(user.getPhone());
+        r.setRole(user.getRole());
+        r.setActive(user.isActive());
+        r.setCreatedAt(user.getCreatedAt());
+        return r;
     }
 }

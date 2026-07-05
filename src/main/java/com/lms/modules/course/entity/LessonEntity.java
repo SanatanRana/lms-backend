@@ -3,7 +3,9 @@ package com.lms.modules.course.entity;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "course_lessons")
+@Table(name = "course_lessons", indexes = {
+    @Index(name = "idx_lesson_section", columnList = "section_id")
+})
 public class LessonEntity {
 
     @Id
