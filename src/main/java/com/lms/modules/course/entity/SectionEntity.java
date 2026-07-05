@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.ArrayList;
 
 @Entity
-@Table(name = "course_sections")
+@Table(name = "course_sections", indexes = {
+    @Index(name = "idx_section_course", columnList = "course_id")
+})
 public class SectionEntity {
 
     @Id

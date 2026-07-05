@@ -178,7 +178,10 @@ public class LiveSessionService {
         LiveSessionEntity session = liveSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
-        if (!session.getTeacher().getEmail().equals(teacherEmail)) {
+        UserEntity requestingUser = userRepository.findByEmail(teacherEmail)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        boolean isAdmin = requestingUser.getRole() == com.lms.common.enums.Role.ADMIN;
+        if (!isAdmin && !session.getTeacher().getEmail().equals(teacherEmail)) {
             throw new RuntimeException("You are not authorized to update this session");
         }
 

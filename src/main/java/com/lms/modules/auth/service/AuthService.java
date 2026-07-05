@@ -11,10 +11,12 @@ import com.lms.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
@@ -26,62 +28,58 @@ public class AuthService {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private AuthenticationManager authenticationManager;
+    private JwtUtil jwtUtil;
 
     @Autowired
-    private JwtUtil jwtUtil;
+    private AuthenticationManager authenticationManager;
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
 
+    @Transactional
     public String registerUser(RegisterRequest request) {
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
-            throw new RuntimeException("Name cannot be empty!");
-        }
-        if (request.getEmail() == null || !request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
-            throw new RuntimeException("Invalid email format!");
-        }
-        if (request.getPassword() == null || request.getPassword().length() < 6) {
-            throw new RuntimeException("Password must be at least 6 characters long!");
-        }
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new RuntimeException("Email is already registered!");
+            throw new RuntimeException("An account with this email address already exists.");
         }
 
         UserEntity user = new UserEntity();
-        user.setName(request.getName());
-        user.setEmail(request.getEmail());
-        user.setPhone(request.getPhone());
+        user.setName(request.getName().trim());
+        user.setEmail(request.getEmail().toLowerCase().trim());
+        user.setPhone(request.getPhone() != null ? request.getPhone().trim() : "");
         user.setPassword(passwordEncoder.encode(request.getPassword()));
+        // Public registration always creates STUDENT accounts.
+        // Admin creates TEACHER accounts via /api/admin/users/register-teacher
         user.setRole(Role.STUDENT);
         user.setActive(true);
 
-        userRepository.save(user);
+        UserEntity saved = userRepository.save(user);
 
-        // OCP: Publish event – any listener can react without changing this code
         eventPublisher.publishEvent(new DomainEvents.UserRegisteredEvent(
-                user.getId(), user.getEmail(), user.getName(), user.getRole().name()
+                saved.getId(), saved.getEmail(), saved.getName(), saved.getRole().name()
         ));
 
-        return "User registered successfully!";
+        return "Registration successful! Welcome to LearnGen. Please login to continue.";
     }
 
+    @Transactional(readOnly = true)
     public AuthResponse loginUser(LoginRequest request) {
         try {
             authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+                    new UsernamePasswordAuthenticationToken(
+                            request.getEmail().toLowerCase().trim(),
+                            request.getPassword()
+                    )
             );
-        } catch (org.springframework.security.authentication.DisabledException e) {
-            throw new RuntimeException("Your account is inactive! Please contact an Admin to activate it.");
-        } catch (AuthenticationException e) {
-            throw new RuntimeException("Invalid email or password!");
+        } catch (DisabledException e) {
+            throw new RuntimeException("Your account has been deactivated. Please contact an administrator.");
+        } catch (BadCredentialsException e) {
+            throw new RuntimeException("Invalid email or password. Please try again.");
         }
 
-        UserEntity user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found!"));
+        UserEntity user = userRepository.findByEmail(request.getEmail().toLowerCase().trim())
+                .orElseThrow(() -> new RuntimeException("User not found."));
 
         String token = jwtUtil.generateToken(user.getEmail());
-
         return new AuthResponse(token, "Login successful", user.getName(), user.getRole().name(), user.getId());
     }
 }

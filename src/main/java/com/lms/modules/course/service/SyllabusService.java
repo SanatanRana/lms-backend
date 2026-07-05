@@ -48,7 +48,8 @@ public class SyllabusService {
 
     @Transactional(readOnly = true)
     public List<SectionEntity> getSections(Long courseId) {
-        return sectionRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
+        // Uses JOIN FETCH to load sections + lessons in a SINGLE query (eliminates N+1)
+        return sectionRepository.findByCourseIdWithLessons(courseId);
     }
 
     @Transactional

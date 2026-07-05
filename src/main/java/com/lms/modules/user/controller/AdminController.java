@@ -5,12 +5,13 @@ import com.lms.modules.course.dto.AdminCourseResponse;
 import com.lms.modules.course.dto.ManualEnrollmentRequest;
 import com.lms.modules.course.entity.EnrollmentEntity;
 import com.lms.modules.payment.entity.CouponEntity;
-import com.lms.modules.payment.entity.PaymentEntity;
+import com.lms.modules.payment.dto.PaymentResponse;
 import com.lms.modules.user.dto.AdminUserDetailResponse;
 import com.lms.modules.user.dto.AnalyticsResponse;
-import com.lms.modules.user.entity.UserEntity;
+import com.lms.modules.user.dto.UserResponse;
 import com.lms.modules.user.service.AdminService;
 import com.lms.modules.auth.dto.RegisterRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,7 +29,7 @@ public class AdminController {
     private AdminService adminService;
 
     @GetMapping("/users")
-    public ResponseEntity<ApiResponse<List<UserEntity>>> getAllUsers() {
+    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
         return ResponseEntity.ok(ApiResponse.success("Users retrieved", adminService.getAllUsers()));
     }
 
@@ -38,8 +39,9 @@ public class AdminController {
     }
 
     @PatchMapping("/users/{id}/toggle-active")
-    public ResponseEntity<ApiResponse<UserEntity>> toggleUserActiveStatus(@PathVariable Long id, Authentication authentication) {
-        UserEntity updatedUser = adminService.toggleUserActiveStatus(id, authentication.getName());
+    public ResponseEntity<ApiResponse<UserResponse>> toggleUserActiveStatus(
+            @PathVariable Long id, Authentication authentication) {
+        UserResponse updatedUser = adminService.toggleUserActiveStatus(id, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success("User status toggled successfully", updatedUser));
     }
 
@@ -59,7 +61,8 @@ public class AdminController {
     }
 
     @PostMapping("/enrollments")
-    public ResponseEntity<ApiResponse<EnrollmentEntity>> enrollStudentManually(@RequestBody ManualEnrollmentRequest request) {
+    public ResponseEntity<ApiResponse<EnrollmentEntity>> enrollStudentManually(
+            @Valid @RequestBody ManualEnrollmentRequest request) {
         EnrollmentEntity enrollment = adminService.enrollStudentManually(request);
         return ResponseEntity.ok(ApiResponse.success("Student enrolled manually", enrollment));
     }
@@ -71,7 +74,7 @@ public class AdminController {
     }
 
     @GetMapping("/transactions")
-    public ResponseEntity<ApiResponse<List<PaymentEntity>>> getAllTransactions() {
+    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getAllTransactions() {
         return ResponseEntity.ok(ApiResponse.success("Transactions retrieved", adminService.getAllTransactions()));
     }
 
@@ -81,13 +84,16 @@ public class AdminController {
     }
 
     @PostMapping("/coupons")
-    public ResponseEntity<ApiResponse<CouponEntity>> createCoupon(@RequestBody com.lms.modules.payment.dto.CouponRequest request) {
+    public ResponseEntity<ApiResponse<CouponEntity>> createCoupon(
+            @Valid @RequestBody com.lms.modules.payment.dto.CouponRequest request) {
         CouponEntity coupon = adminService.createCoupon(request);
         return ResponseEntity.ok(ApiResponse.success("Coupon created successfully", coupon));
     }
 
     @PutMapping("/coupons/{id}")
-    public ResponseEntity<ApiResponse<CouponEntity>> updateCoupon(@PathVariable Long id, @RequestBody com.lms.modules.payment.dto.CouponRequest request) {
+    public ResponseEntity<ApiResponse<CouponEntity>> updateCoupon(
+            @PathVariable Long id,
+            @Valid @RequestBody com.lms.modules.payment.dto.CouponRequest request) {
         CouponEntity coupon = adminService.updateCoupon(id, request);
         return ResponseEntity.ok(ApiResponse.success("Coupon updated successfully", coupon));
     }
@@ -99,13 +105,15 @@ public class AdminController {
     }
 
     @PostMapping("/users/register-teacher")
-    public ResponseEntity<ApiResponse<UserEntity>> registerTeacher(@RequestBody RegisterRequest request) {
-        UserEntity teacher = adminService.registerTeacher(request);
+    public ResponseEntity<ApiResponse<UserResponse>> registerTeacher(
+            @Valid @RequestBody RegisterRequest request) {
+        UserResponse teacher = adminService.registerTeacher(request);
         return ResponseEntity.ok(ApiResponse.success("Teacher registered successfully", teacher));
     }
 
     @DeleteMapping("/users/{id}")
-    public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long id, Authentication authentication) {
+    public ResponseEntity<ApiResponse<Void>> deleteUser(
+            @PathVariable Long id, Authentication authentication) {
         adminService.deleteUser(id, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success("User deleted successfully", null));
     }

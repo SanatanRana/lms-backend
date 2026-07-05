@@ -5,9 +5,19 @@ import com.lms.modules.user.entity.UserEntity;
 import com.lms.modules.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+/**
+ * DataSeeder runs once at application startup.
+ *
+ * IMPORTANT DESIGN DECISION:
+ * - Admin/Teacher/Student seed users are created ONLY if they don't already exist.
+ * - Passwords are NEVER reset on subsequent boots. This ensures admins can
+ *   change their passwords via the app without them being overwritten.
+ * - To reset a password, delete the user from the DB and restart the app.
+ */
 @Component
 public class DataSeeder implements CommandLineRunner {
 
@@ -18,66 +28,63 @@ public class DataSeeder implements CommandLineRunner {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+    private JdbcTemplate jdbcTemplate;
 
     @Override
     public void run(String... args) throws Exception {
-        // Drop check constraint users_chk_1 if it exists
+        // Drop check constraint users_chk_1 if it exists (compatibility fix)
         try {
             jdbcTemplate.execute("ALTER TABLE users DROP CHECK users_chk_1");
-            System.out.println("Constraint 'users_chk_1' dropped successfully.");
+            System.out.println("[DataSeeder] Constraint 'users_chk_1' dropped.");
         } catch (Exception e) {
-            System.out.println("Could not drop check constraint (expected if it is already dropped): " + e.getMessage());
+            // Expected if constraint doesn't exist — safe to ignore
         }
-        
-        // 1. Create or Update Default Admin
-        UserEntity admin = userRepository.findByEmail("admin@lms.com").orElse(null);
-        if (admin == null) {
-            admin = new UserEntity();
+
+        // Create Default Admin (only if doesn't exist)
+        if (userRepository.findByEmail("admin@lms.com").isEmpty()) {
+            UserEntity admin = new UserEntity();
             admin.setEmail("admin@lms.com");
-            System.out.println("Creating default Admin...");
+            admin.setName("Super Admin");
+            admin.setPhone("0000000000");
+            admin.setPassword(passwordEncoder.encode("admin123"));
+            admin.setRole(Role.ADMIN);
+            admin.setActive(true);
+            userRepository.save(admin);
+            System.out.println("[DataSeeder] Default Admin created: admin@lms.com / admin123");
         } else {
-            System.out.println("Updating existing Admin seeder settings...");
+            System.out.println("[DataSeeder] Admin already exists — skipped.");
         }
-        admin.setName("Super Admin");
-        admin.setPhone("0000000000");
-        admin.setPassword(passwordEncoder.encode("admin123")); // Reset to admin123 hashed
-        admin.setRole(Role.ADMIN);
-        admin.setActive(true); // Ensure they are active!
-        userRepository.save(admin);
 
-        // 2. Create or Update Default Teacher
-        UserEntity teacher = userRepository.findByEmail("teacher@lms.com").orElse(null);
-        if (teacher == null) {
-            teacher = new UserEntity();
+        // Create Default Teacher (only if doesn't exist)
+        if (userRepository.findByEmail("teacher@lms.com").isEmpty()) {
+            UserEntity teacher = new UserEntity();
             teacher.setEmail("teacher@lms.com");
-            System.out.println("Creating default Teacher...");
+            teacher.setName("Expert Teacher");
+            teacher.setPhone("1111111111");
+            teacher.setPassword(passwordEncoder.encode("teacher123"));
+            teacher.setRole(Role.TEACHER);
+            teacher.setActive(true);
+            userRepository.save(teacher);
+            System.out.println("[DataSeeder] Default Teacher created: teacher@lms.com / teacher123");
         } else {
-            System.out.println("Updating existing Teacher seeder settings...");
+            System.out.println("[DataSeeder] Teacher already exists — skipped.");
         }
-        teacher.setName("Expert Teacher");
-        teacher.setPhone("1111111111");
-        teacher.setPassword(passwordEncoder.encode("teacher123")); // Reset to teacher123 hashed
-        teacher.setRole(Role.TEACHER);
-        teacher.setActive(true); // Ensure they are active!
-        userRepository.save(teacher);
 
-        // 3. Create or Update Default Student
-        UserEntity student = userRepository.findByEmail("student@lms.com").orElse(null);
-        if (student == null) {
-            student = new UserEntity();
+        // Create Default Student (only if doesn't exist)
+        if (userRepository.findByEmail("student@lms.com").isEmpty()) {
+            UserEntity student = new UserEntity();
             student.setEmail("student@lms.com");
-            System.out.println("Creating default Student...");
+            student.setName("Default Student");
+            student.setPhone("2222222222");
+            student.setPassword(passwordEncoder.encode("student123"));
+            student.setRole(Role.STUDENT);
+            student.setActive(true);
+            userRepository.save(student);
+            System.out.println("[DataSeeder] Default Student created: student@lms.com / student123");
         } else {
-            System.out.println("Updating existing Student seeder settings...");
+            System.out.println("[DataSeeder] Student already exists — skipped.");
         }
-        student.setName("Default Student");
-        student.setPhone("2222222222");
-        student.setPassword(passwordEncoder.encode("student123")); // Reset to student123 hashed
-        student.setRole(Role.STUDENT);
-        student.setActive(true); // Ensure they are active!
-        userRepository.save(student);
 
-        System.out.println("Data seeding / alignment successfully completed.");
+        System.out.println("[DataSeeder] Completed successfully.");
     }
 }

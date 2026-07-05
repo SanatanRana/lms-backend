@@ -20,8 +20,10 @@ public class JwtUtil {
     @Value("${jwt.secret:}")
     private String jwtSecret;
 
+    @Value("${jwt.expiration:86400000}")
+    private long expirationMs; // Default: 24 hours
+
     private Key signingKey;
-    private static final long EXPIRATION_TIME = 1000L * 60 * 60 * 24; // 24 hours
 
     @PostConstruct
     public void init() {
@@ -37,7 +39,7 @@ public class JwtUtil {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
+                .setExpiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(signingKey)
                 .compact();
     }
@@ -51,12 +53,20 @@ public class JwtUtil {
         return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
 
+    public Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
     private boolean isTokenExpired(String token) {
         return extractClaim(token, Claims::getExpiration).before(new Date());
     }
 
     private <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
-        final Claims claims = Jwts.parserBuilder().setSigningKey(signingKey).build().parseClaimsJws(token).getBody();
+        final Claims claims = Jwts.parserBuilder()
+                .setSigningKey(signingKey)
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
         return claimsResolver.apply(claims);
     }
-}
+}

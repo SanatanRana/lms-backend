@@ -28,7 +28,7 @@ public class EnrollmentEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "course_id", nullable = false)
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections"})
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections", "resources", "enrollments"})
     private CourseEntity course;
 
     @Column(name = "progress_percent", nullable = false)
