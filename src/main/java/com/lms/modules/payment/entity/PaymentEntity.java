@@ -21,14 +21,14 @@ public class PaymentEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "password"})
     private UserEntity user;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "course_id", nullable = false)
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections"})
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections", "resources", "enrollments", "teacher"})
     private CourseEntity course;
 
     @Column(nullable = false)

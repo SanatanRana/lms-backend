@@ -23,12 +23,12 @@ public class LiveSessionEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "course_id", nullable = false)
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections"})
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections", "resources", "enrollments", "teacher"})
     private CourseEntity course;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "teacher_id", nullable = false)
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "password"})
     private UserEntity teacher;
