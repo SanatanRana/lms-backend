@@ -76,23 +76,50 @@ public class GeminiAiProvider implements AiProvider {
 
     @Override
     public String generateResponse(String prompt) {
+        return generateResponse(prompt, java.util.Collections.emptyList());
+    }
+
+    @Override
+    public String generateResponse(String prompt, java.util.List<com.lms.modules.ai.entity.AiChatMessageEntity> history) {
         if (apiKey == null || apiKey.trim().isEmpty()) {
             throw new RuntimeException("Gemini API key is not configured. Please set GEMINI_API_KEY.");
         }
 
         try {
-            // Build Gemini API request body
+            // Build contents array with history
+            java.util.List<java.util.Map<String, Object>> contents = new java.util.ArrayList<>();
+
+            // Add history context (limit to last 10 messages to keep under token limits)
+            int historySize = history != null ? history.size() : 0;
+            int startIdx = Math.max(0, historySize - 10);
+            for (int i = startIdx; i < historySize; i++) {
+                com.lms.modules.ai.entity.AiChatMessageEntity msg = history.get(i);
+                // Add user message
+                contents.add(java.util.Map.of(
+                    "role", "user",
+                    "parts", java.util.List.of(java.util.Map.of("text", msg.getMessage()))
+                ));
+                // Add model response
+                if (msg.getResponse() != null && !msg.getResponse().isBlank()) {
+                    contents.add(java.util.Map.of(
+                        "role", "model",
+                        "parts", java.util.List.of(java.util.Map.of("text", msg.getResponse()))
+                    ));
+                }
+            }
+
+            // Add current user prompt
+            contents.add(java.util.Map.of(
+                "role", "user",
+                "parts", java.util.List.of(java.util.Map.of("text", prompt))
+            ));
+
             String requestBody = objectMapper.writeValueAsString(
                 java.util.Map.of(
                     "system_instruction", java.util.Map.of(
                         "parts", java.util.List.of(java.util.Map.of("text", SYSTEM_INSTRUCTION))
                     ),
-                    "contents", java.util.List.of(
-                        java.util.Map.of(
-                            "role", "user",
-                            "parts", java.util.List.of(java.util.Map.of("text", prompt))
-                        )
-                    ),
+                    "contents", contents,
                     "generationConfig", java.util.Map.of(
                         "maxOutputTokens", 2000,
                         "temperature", 0.7,

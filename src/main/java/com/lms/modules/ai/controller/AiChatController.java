@@ -38,16 +38,55 @@ public class AiChatController {
         String email = authentication.getName();
         // Use explicitly requested provider, or fall back to configured default
         String resolvedProvider = (provider != null && !provider.isBlank()) ? provider : defaultProvider;
-        AiChatMessageEntity message = aiChatService.sendMessage(email, request.getMessage(), resolvedProvider);
+        AiChatMessageEntity message = aiChatService.sendMessage(email, request.getMessage(), resolvedProvider, request.getThreadId(), request.getCourseId());
         return ResponseEntity.ok(ApiResponse.success("AI response generated", message));
     }
 
     @GetMapping("/history")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<List<AiChatMessageEntity>>> getChatHistory(Authentication authentication) {
+    public ResponseEntity<ApiResponse<List<AiChatMessageEntity>>> getChatHistory(
+            @RequestParam(required = false) Long threadId,
+            Authentication authentication) {
         String email = authentication.getName();
-        List<AiChatMessageEntity> history = aiChatService.getChatHistory(email);
+        List<AiChatMessageEntity> history;
+        if (threadId != null) {
+            history = aiChatService.getChatMessagesForThread(email, threadId);
+        } else {
+            history = aiChatService.getChatHistory(email);
+        }
         return ResponseEntity.ok(ApiResponse.success("Chat history retrieved", history));
+    }
+
+    @PostMapping("/threads")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<com.lms.modules.ai.entity.AiChatThreadEntity>> createThread(
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        String email = authentication.getName();
+        Long courseId = Long.valueOf(body.get("courseId").toString());
+        String title = (String) body.get("title");
+        com.lms.modules.ai.entity.AiChatThreadEntity thread = aiChatService.createThread(email, courseId, title);
+        return ResponseEntity.ok(ApiResponse.success("Chat thread created", thread));
+    }
+
+    @GetMapping("/threads")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<List<com.lms.modules.ai.entity.AiChatThreadEntity>>> getThreads(
+            @RequestParam Long courseId,
+            Authentication authentication) {
+        String email = authentication.getName();
+        List<com.lms.modules.ai.entity.AiChatThreadEntity> threads = aiChatService.getThreads(email, courseId);
+        return ResponseEntity.ok(ApiResponse.success("Chat threads retrieved", threads));
+    }
+
+    @DeleteMapping("/threads/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Void>> deleteThread(
+            @PathVariable Long id,
+            Authentication authentication) {
+        String email = authentication.getName();
+        aiChatService.deleteThread(email, id);
+        return ResponseEntity.ok(ApiResponse.success("Chat thread deleted"));
     }
 
     /**

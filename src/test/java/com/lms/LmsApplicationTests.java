@@ -115,4 +115,14 @@ class LmsApplicationTests {
         });
         System.out.println("=====================================");
     }
+
+    @Test
+    void testPrintUsers() {
+        System.out.println("=== LISTING ALL USERS IN DATABASE ===");
+        userRepository.findAll().forEach(u -> {
+            System.out.printf("ID: %d, Email: %s, Role: %s, Active: %b%n",
+                    u.getId(), u.getEmail(), u.getRole(), u.isActive());
+        });
+        System.out.println("=====================================");
+    }
 }

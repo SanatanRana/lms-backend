@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface AiChatMessageRepository extends JpaRepository<AiChatMessageEntity, Long> {
     List<AiChatMessageEntity> findByUserIdOrderByCreatedAtAsc(Long userId);
+    List<AiChatMessageEntity> findByThreadIdOrderByCreatedAtAsc(Long threadId);
 }

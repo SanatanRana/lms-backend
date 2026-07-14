@@ -1,18 +1,18 @@
 package com.lms.modules.ai.entity;
 
 import com.lms.modules.user.entity.UserEntity;
+import com.lms.modules.course.entity.CourseEntity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "ai_chat_messages", indexes = {
-    @Index(name = "idx_ai_chat_user_date", columnList = "user_id, created_at"),
-    @Index(name = "idx_ai_chat_thread", columnList = "thread_id")
+@Table(name = "ai_chat_threads", indexes = {
+    @Index(name = "idx_ai_thread_user_course", columnList = "user_id, course_id, created_at")
 })
 @Data
-public class AiChatMessageEntity {
+public class AiChatThreadEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -20,19 +20,16 @@ public class AiChatMessageEntity {
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id", nullable = false)
-    @JsonIgnoreProperties({"password", "hibernateLazyInitializer", "handler"})
+    @JsonIgnoreProperties({"password", "role", "active", "phone", "createdAt", "hibernateLazyInitializer", "handler"})
     private UserEntity user;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "thread_id", nullable = true)
-    @JsonIgnoreProperties({"user", "course", "hibernateLazyInitializer", "handler"})
-    private AiChatThreadEntity thread;
+    @JoinColumn(name = "course_id", nullable = false)
+    @JsonIgnoreProperties({"sections", "lessons", "resources", "enrollments", "teacher", "hibernateLazyInitializer", "handler"})
+    private CourseEntity course;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String message;
-
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String response;
+    @Column(nullable = false)
+    private String title;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

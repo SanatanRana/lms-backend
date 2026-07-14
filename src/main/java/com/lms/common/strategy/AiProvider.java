@@ -13,4 +13,9 @@ public interface AiProvider {
 
     /** Generates a response based on the input prompt */
     String generateResponse(String prompt);
+
+    /** Generates a response based on the input prompt and thread history */
+    default String generateResponse(String prompt, java.util.List<com.lms.modules.ai.entity.AiChatMessageEntity> history) {
+        return generateResponse(prompt);
+    }
 }
