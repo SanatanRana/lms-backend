@@ -53,4 +53,35 @@ public class AssignmentController {
             @PathVariable Long submissionId, @RequestParam Integer grade, @RequestParam(required = false) String feedback) {
         return ResponseEntity.ok(ApiResponse.success("Graded", assignmentService.gradeSubmission(submissionId, grade, feedback)));
     }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<AssignmentEntity>> updateAssignment(
+            @PathVariable Long id,
+            @RequestBody AssignmentRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Assignment updated", assignmentService.updateAssignment(id, request)));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteAssignment(@PathVariable Long id) {
+        assignmentService.deleteAssignment(id);
+        return ResponseEntity.ok(ApiResponse.success("Assignment deleted successfully", null));
+    }
+
+    @DeleteMapping("/submissions/{id}")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<ApiResponse<Void>> deleteSubmission(
+            @PathVariable Long id, Authentication authentication) {
+        assignmentService.deleteSubmission(id, authentication.getName());
+        return ResponseEntity.ok(ApiResponse.success("Submission deleted successfully (unsubmitted)", null));
+    }
+
+    @GetMapping("/course/{courseId}/my-submissions")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<ApiResponse<List<AssignmentSubmissionEntity>>> getMySubmissions(
+            @PathVariable Long courseId, Authentication authentication) {
+        return ResponseEntity.ok(ApiResponse.success("My Submissions",
+                assignmentService.getStudentSubmissions(courseId, authentication.getName())));
+    }
 }
