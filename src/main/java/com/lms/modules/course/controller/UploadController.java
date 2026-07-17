@@ -20,7 +20,7 @@ public class UploadController {
     private AzureBlobStorageService azureBlobStorageService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('TEACHER', 'ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Map<String, String>>> uploadFile(@RequestParam("file") MultipartFile file) {
         try {
             if (file.isEmpty()) {

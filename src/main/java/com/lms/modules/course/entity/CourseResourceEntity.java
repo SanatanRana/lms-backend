@@ -18,7 +18,7 @@ public class CourseResourceEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "course_id", nullable = false)
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "sections"})
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private CourseEntity course;
 
     @Column(name = "file_name", nullable = false)
