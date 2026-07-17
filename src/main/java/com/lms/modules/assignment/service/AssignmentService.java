@@ -98,6 +98,53 @@ public class AssignmentService {
         return submissionRepository.save(submission);
     }
 
+    @Transactional
+    public AssignmentEntity updateAssignment(Long id, AssignmentRequest request) {
+        AssignmentEntity assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Assignment not found"));
+        assignment.setTitle(request.getTitle());
+        assignment.setDescription(request.getDescription());
+        assignment.setDueDate(request.getDueDate());
+        if (request.getMaxScore() != null) {
+            assignment.setMaxScore(request.getMaxScore());
+        }
+        return assignmentRepository.save(assignment);
+    }
+
+    @Transactional
+    public void deleteAssignment(Long id) {
+        AssignmentEntity assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Assignment not found"));
+        List<AssignmentSubmissionEntity> submissions = submissionRepository.findByAssignmentId(id);
+        submissionRepository.deleteAll(submissions);
+        assignmentRepository.delete(assignment);
+    }
+
+    @Transactional
+    public void deleteSubmission(Long id, String studentEmail) {
+        AssignmentSubmissionEntity submission = submissionRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Submission not found"));
+
+        if (!submission.getStudent().getEmail().equalsIgnoreCase(studentEmail)) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied: You cannot delete another student's submission");
+        }
+
+        if (submission.getGrade() != null) {
+            throw new RuntimeException("Cannot unsubmit: This assignment has already been graded");
+        }
+
+        submissionRepository.delete(submission);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssignmentSubmissionEntity> getStudentSubmissions(Long courseId, String studentEmail) {
+        UserEntity student = userRepository.findByEmail(studentEmail)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+        return submissionRepository.findByStudentId(student.getId()).stream()
+                .filter(s -> s.getAssignment().getCourse().getId().equals(courseId))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     @org.springframework.context.event.EventListener
     @Transactional
     public void onCourseDeleted(DomainEvents.CourseDeletedEvent event) {
