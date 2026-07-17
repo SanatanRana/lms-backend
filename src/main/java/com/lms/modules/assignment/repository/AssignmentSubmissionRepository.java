@@ -8,7 +8,9 @@ import java.util.Optional;
 
 @Repository
 public interface AssignmentSubmissionRepository extends JpaRepository<AssignmentSubmissionEntity, Long> {
-    List<AssignmentSubmissionEntity> findByAssignmentId(Long assignmentId);
+    @org.springframework.data.jpa.repository.Query("SELECT s FROM AssignmentSubmissionEntity s LEFT JOIN FETCH s.assignment LEFT JOIN FETCH s.student WHERE s.assignment.id = :assignmentId")
+    List<AssignmentSubmissionEntity> findByAssignmentId(@org.springframework.data.repository.query.Param("assignmentId") Long assignmentId);
+
     List<AssignmentSubmissionEntity> findByStudentId(Long studentId);
     Optional<AssignmentSubmissionEntity> findByAssignmentIdAndStudentId(Long assignmentId, Long studentId);
 }
